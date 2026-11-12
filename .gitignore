@@ -1,0 +1,18 @@
+# Never publish these (see README)
+apk/
+photos/
+captures/
+*.apk
+*.btsnoop
+*.log
+
+# Rust build
+core/target/
+target/
+
+# Citlivé — nepublikovat ve veřejném repu (viz research/notes/code_licensing.md)
+research/notes/killswitch_analysis.md
+tools/swapdex.py
+tools/frida_dump_plaintext.js
+*.keystore
+apk/patched/

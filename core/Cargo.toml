@@ -1,0 +1,18 @@
+[package]
+name = "openplug-core"
+version = "0.1.0"
+edition = "2021"
+description = "OpenPlug — sdílené jádro (transport, TLS-SRP, protokol DataPlugu). Nezávislé na platformě."
+license = "MIT"
+
+[dependencies]
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
+sha1 = "0.10.6"
+thiserror = "1.0.69"
+aes = "0.8.4"
+hmac = "0.12.1"
+sha2 = "0.10.9"
+
+[dev-dependencies]
+hex = "0.4.3"
