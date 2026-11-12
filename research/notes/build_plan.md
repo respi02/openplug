@@ -74,6 +74,12 @@ ios:     CoreBluetooth(GATT)  ──┘                 SwiftUI UI
 7. Android shim + UI (end-to-end), then iOS (BLE) + SwiftUI.
 
 ## Open questions
-- Does the same TLS-SRP+protobuf tunnel run over BLE GATT? (very likely; confirm).
+- **Does the same TLS-SRP+protobuf tunnel run over BLE GATT? UNVERIFIED.** Our
+  capture was 100% Classic SPP (0 BLE bytes). BLE is characteristic-based, not a
+  stream, so TLS records need segmentation/reassembly over GATT and the dongle may
+  add its own framing. Resolve by: (1) BLE scan + GATT enumeration; (2) active
+  probe — write a TLS-SRP ClientHello to the write characteristic from any BLE
+  central (Mac/Android, our own core) and check for a ServerHello notification.
+  This needs neither the retired iOS app nor an iOS device.
 - Token lifecycle: how long valid, where the dongle binds it (per-phone?).
 - `url` → specific vehicle signal: from `getSupportedDiagParameters` at runtime.

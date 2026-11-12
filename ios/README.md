@@ -1,9 +1,30 @@
-# OpenPlug — iOS app (scaffold)
+# OpenPlug — iOS app (scaffold, BLE transport UNVERIFIED)
 
-> **Status: skeleton, not built here.** The dongle is dual-mode Bluetooth and
-> **not MFi**, so iOS uses **Core Bluetooth (BLE)** — see research/notes/tech_stack.md.
-> Confirm the GATT service/characteristic UUIDs with a BLE scan of the powered dongle.
+> **Status: skeleton + open question.** The dongle is dual-mode Bluetooth and
+> **not MFi**, so iOS almost certainly uses **Core Bluetooth (BLE)**. But our
+> packet capture was 100% Bluetooth Classic SPP — we have **zero bytes of the BLE
+> side**. The BLE transport below cannot be written correctly until the BLE path
+> is observed.
 
+## What is unverified
+BLE is GATT (characteristic write + notify), not a byte stream like RFCOMM/SPP:
+- TLS records (~hundreds of bytes) must be segmented across writes and reassembled
+  from notifications, bounded by the ATT MTU (default 20 B, negotiable).
+- Unknown whether the dongle's BLE characteristic is a transparent serial pipe
+  (then our core works unchanged) or adds its own framing (then we must reverse it).
+- Unknown: service UUID, write/notify characteristic UUIDs, with/without response,
+  bonding requirements.
+
+## How to resolve it (does NOT need the retired iOS app)
+1. **BLE scan + GATT enumeration** of the powered dongle (nRF Connect / LightBlue,
+   or macOS) → service + characteristic UUIDs and properties.
+2. **Active probe from any BLE central (Mac/Android) using our own core:** write a
+   TLS-SRP ClientHello to the write characteristic, listen for notifications. A
+   sensible ServerHello (`16 03 03 … 02 …`) confirms the same tunnel and reveals
+   the framing.
+3. Fallback: an iOS HCI capture (PacketLogger over USB) with the original app.
+
+## Architecture (once confirmed)
 ```
 SwiftUI
    │
@@ -11,12 +32,5 @@ CoreBluetoothTransport  ──implements──►  (Rust) Transport callback int
    │
 CBPeripheral write/notify characteristic   openplug-core (TLS-SRP + protocol)
 ```
-
-The same Rust `core/` is built as an XCFramework (cargo + UniFFI Swift bindings);
-Swift implements the `Transport` callback interface backed by a BLE
-write/notify characteristic pair. The TLS-SRP + protobuf tunnel is transport-agnostic.
-
-## TODO
-- BLE scan → fill in service + write/notify characteristic UUIDs.
-- Confirm the same TLS-SRP+protobuf tunnel runs over the BLE characteristic
-  (very likely; verify MTU/segmentation).
+The shared Rust `core/` is transport-agnostic; only this thin BLE shim (notification
+reassembly + MTU segmentation + any dongle-specific framing) depends on the findings.
