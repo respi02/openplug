@@ -189,3 +189,63 @@ pub fn build_client_hello(client_random: &[u8; 32], identity: &[u8]) -> Vec<u8> 
     b.extend_from_slice(&ext);
     b
 }
+
+// ---- serverová strana (pro loopback test / dokumentaci protokolu) ----
+
+/// Z ClientHello vytáhne client_random a SRP identitu.
+pub fn parse_client_hello(body: &[u8]) -> Option<([u8; 32], Vec<u8>)> {
+    let mut p = 0usize;
+    if body.len() < 2 + 32 + 1 { return None; }
+    p += 2;
+    let mut cr = [0u8; 32]; cr.copy_from_slice(&body[p..p + 32]); p += 32;
+    let sidl = *body.get(p)? as usize; p += 1 + sidl;
+    let csl = u16::from_be_bytes([*body.get(p)?, *body.get(p + 1)?]) as usize; p += 2 + csl;
+    let cml = *body.get(p)? as usize; p += 1 + cml;
+    if p + 2 > body.len() { return None; }
+    let extl = u16::from_be_bytes([body[p], body[p + 1]]) as usize; p += 2;
+    let end = (p + extl).min(body.len());
+    let mut identity = None;
+    while p + 4 <= end {
+        let et = u16::from_be_bytes([body[p], body[p + 1]]);
+        let el = u16::from_be_bytes([body[p + 2], body[p + 3]]) as usize;
+        let data = &body[p + 4..(p + 4 + el).min(body.len())];
+        if et == 0x000c && !data.is_empty() {
+            let ilen = data[0] as usize;
+            if 1 + ilen <= data.len() { identity = Some(data[1..1 + ilen].to_vec()); }
+        }
+        p += 4 + el;
+    }
+    Some((cr, identity?))
+}
+
+/// Sestaví ServerHello tělo (vyjednává encrypt_then_mac + extended_master_secret).
+pub fn build_server_hello(server_random: &[u8; 32], session_id: &[u8]) -> Vec<u8> {
+    let mut b = Vec::new();
+    b.extend_from_slice(&[0x03, 0x03]);
+    b.extend_from_slice(server_random);
+    b.push(session_id.len() as u8);
+    b.extend_from_slice(session_id);
+    b.extend_from_slice(&[0xC0, 0x1D]); // cipher
+    b.push(0x00);                       // compression null
+    let mut ext = Vec::new();
+    ext.extend_from_slice(&[0x00, 0x16, 0x00, 0x00]); // encrypt_then_mac
+    ext.extend_from_slice(&[0x00, 0x17, 0x00, 0x00]); // extended_master_secret
+    b.extend_from_slice(&(ext.len() as u16).to_be_bytes());
+    b.extend_from_slice(&ext);
+    b
+}
+
+/// Sestaví ServerKeyExchange tělo: N<2> | g<2> | salt<1> | B<2>.
+pub fn build_server_key_exchange(n: &BigUint, g: &BigUint, salt: &[u8], b_pub: &BigUint) -> Vec<u8> {
+    let mut out = Vec::new();
+    for v in [n.to_bytes_be(), g.to_bytes_be()] {
+        out.extend_from_slice(&(v.len() as u16).to_be_bytes());
+        out.extend_from_slice(&v);
+    }
+    out.push(salt.len() as u8);
+    out.extend_from_slice(salt);
+    let bb = b_pub.to_bytes_be();
+    out.extend_from_slice(&(bb.len() as u16).to_be_bytes());
+    out.extend_from_slice(&bb);
+    out
+}

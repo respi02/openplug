@@ -45,7 +45,7 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 | `tls_prf` — TLS 1.2 PRF-SHA256 | ✅ verified vs known-answer |
 | `tls_record` — AES-128-CBC + HMAC-SHA1, Encrypt-then-MAC (RFC 7366) | ✅ |
 | `tls_handshake` — master secret, EMS (RFC 7627), ServerKeyExchange parse | ✅ parses real dongle bytes |
-| `tls_client` — TLS-SRP handshake orchestration | 🚧 in progress |
+| `tls_client` — TLS-SRP handshake orchestration | ✅ full loopback test |
 | protobuf codec + OBD/data-object layer | ⏳ needs one live capture |
 
 ### Build & test (offline, no dongle needed)
@@ -103,7 +103,7 @@ UI (Kotlin/Compose na Androidu, SwiftUI na iOS), propojené přes UniFFI.
 | `tls_prf` — TLS 1.2 PRF-SHA256 | ✅ ověřeno proti známému vektoru |
 | `tls_record` — AES-128-CBC + HMAC-SHA1, Encrypt-then-MAC (RFC 7366) | ✅ |
 | `tls_handshake` — master secret, EMS (RFC 7627), parser ServerKeyExchange | ✅ parsuje reálné bajty dongle |
-| `tls_client` — orchestrace TLS-SRP handshake | 🚧 rozpracováno |
+| `tls_client` — orchestrace TLS-SRP handshake | ✅ plný loopback test |
 | protobuf kodek + OBD/datové objekty | ⏳ čeká na 1 živé zachycení |
 
 ### Build a test (offline, bez dongle)

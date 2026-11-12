@@ -43,7 +43,7 @@ ios:     CoreBluetooth(GATT)  ──┘                 SwiftUI UI
 1. ✅ **Rust kostra** (`core/`): Cargo workspace, `Transport` trait + test pipe, **SRP-6a implementace ověřená offline** (RFC 5054 Appendix B vektor + shoda premaster klient↔server na 1536-bit skupině dongle, identita `PA`). `cd core && cargo test`.
 2. ✅ **TLS record vrstva** (`core/src/tls_record.rs`): AES-128-CBC + HMAC-SHA1, MAC-then-encrypt, explicitní IV, TLS padding — vlastní implementace (cesta B, bez mbedtls/C). Ověřeno offline: round-trip (délky 0–255 B), detekce manipulace, seq v MAC. `cargo test` → 5 passed.
 3. ✅ **TLS 1.2 handshake — krypto a klíčový rozvrh** (`tls_prf.rs`, `tls_handshake.rs`): PRF-SHA256 (ověřen standardním vektorem), master secret + key expansion → klíče pro record vrstvu, parser ServerKeyExchange **ověřen proti REÁLNÝM bajtům dongle** (frame 312: N=RFC5054-1536, g=2, salt, B), ClientKeyExchange serializace, Finished verify_data. **Plný loopback** SRP→premaster→master→klíče→record (oba směry) prošel. `cargo test` → 8 passed.
-   Zbývá orchestrace drátového handshake (ClientHello builder + sekvence CCS/Finished) — dokončí se proti loopback TLS-SRP serveru / donglu.
+4. ✅ **Orchestrace handshake** (`tls_client.rs`): plný TLS-SRP dialog (ClientHello→ServerHello/SKE/SHD→ClientKeyExchange→CCS/Finished) s EtM + EMS, klient i server, **plný loopback test** (navázání + výměna app dat oběma směry). `cargo test` → 9 passed.
 4. **protobuf kodek** — generický decode (field/wire) jde offline; `.proto` schéma a názvy čekají na plaintext záznam.
 5. Desktop test harness (BT Classic z Macu přes USB adaptér) — kód připravit, spustit s donglem.
 6. UniFFI rozhraní + stuby horních vrstev.

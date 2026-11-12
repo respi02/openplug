@@ -184,3 +184,80 @@ fn take_handshake(buf: &[u8]) -> Option<(u8, &[u8], usize)> {
     if 4 + len > buf.len() { return None; }
     Some((buf[0], &buf[4..4 + len], 4 + len))
 }
+
+/// Serverová konfigurace (loopback / dokumentace). V reálu je server = dongle.
+pub struct ServerConfig<'a> {
+    pub group: &'a SrpGroup,
+    pub password: &'a [u8],
+    pub salt: Vec<u8>,
+    pub server_random: [u8; 32],
+    pub b: BigUint,            // SRP efemérní privát serveru
+    pub session_id: Vec<u8>,
+    pub finished_iv: [u8; 16],
+}
+
+/// Serverová strana handshake (zrcadlo klienta). Vrací navázanou Session.
+pub fn server_handshake<'a, T: Transport>(t: &'a mut T, cfg: &ServerConfig) -> Result<Session<'a, T>, HsError> {
+    let srp = Srp::new(cfg.group);
+    let mut tr = hs::Transcript::default();
+
+    // 1) ClientHello
+    let (ct, ch_payload) = read_record(t)?;
+    if ct != HANDSHAKE { return Err(HsError::Protocol); }
+    let (ht, ch_body, consumed) = take_handshake(&ch_payload).ok_or(HsError::Protocol)?;
+    if ht != HT_CLIENT_HELLO { return Err(HsError::Protocol); }
+    tr.add(&ch_payload[..consumed]);
+    let (client_random, identity) = hs::parse_client_hello(ch_body).ok_or(HsError::Protocol)?;
+
+    // 2) verifier, B; SH + SKE + SHD (jeden record)
+    let x = srp.x(&cfg.salt, &identity, cfg.password);
+    let v = srp.verifier(&x);
+    let b_pub = srp.server_public(&v, &cfg.b);
+
+    let sh = hs::hs_wrap(HT_SERVER_HELLO, &hs::build_server_hello(&cfg.server_random, &cfg.session_id));
+    let ske = hs::hs_wrap(HT_SERVER_KEY_EXCHANGE,
+        &hs::build_server_key_exchange(&srp.n, &srp.g, &cfg.salt, &b_pub));
+    let shd = hs::hs_wrap(HT_SERVER_HELLO_DONE, &[]);
+    for m in [&sh, &ske, &shd] { tr.add(m); }
+    let mut flight = Vec::new();
+    flight.extend_from_slice(&sh); flight.extend_from_slice(&ske); flight.extend_from_slice(&shd);
+    write_record(t, HANDSHAKE, &flight)?;
+
+    // 3) ClientKeyExchange → A
+    let (ct2, cke_payload) = read_record(t)?;
+    if ct2 != HANDSHAKE { return Err(HsError::Protocol); }
+    let (ht2, cke_body, consumed2) = take_handshake(&cke_payload).ok_or(HsError::Protocol)?;
+    if ht2 != HT_CLIENT_KEY_EXCHANGE { return Err(HsError::Protocol); }
+    tr.add(&cke_payload[..consumed2]);
+    if cke_body.len() < 2 { return Err(HsError::Protocol); }
+    let alen = u16::from_be_bytes([cke_body[0], cke_body[1]]) as usize;
+    let a_pub = BigUint::from_bytes_be(&cke_body[2..2 + alen]);
+
+    // 4) premaster (server) + klíče (EMS)
+    let u = srp.u(&a_pub, &b_pub);
+    let premaster = srp.server_premaster(&a_pub, &v, &u, &cfg.b).to_bytes_be();
+    let session_hash = tr.hash(); // CH..CKE
+    let master = hs::extended_master_secret(&premaster, &session_hash);
+    let (client_keys, server_keys) = hs::key_block(&master, &client_random, &cfg.server_random);
+
+    // 5) klientův CCS + Finished (ověř)
+    let (c1, _) = read_record(t)?;
+    if c1 != CHANGE_CIPHER_SPEC { return Err(HsError::Protocol); }
+    let (c2, cfin_rec) = read_record(t)?;
+    if c2 != HANDSHAKE { return Err(HsError::Protocol); }
+    let cfin = open(&client_keys, 0, HANDSHAKE, &cfin_rec).map_err(HsError::Record)?;
+    let (cht, cvd, cconsumed) = take_handshake(&cfin).ok_or(HsError::Protocol)?;
+    if cht != HT_FINISHED { return Err(HsError::Protocol); }
+    let exp_c = hs::finished_verify_data(&master, b"client finished", &tr.hash());
+    if cvd != exp_c { return Err(HsError::BadFinished); }
+    tr.add(&cfin[..cconsumed]); // přidej klientův Finished pro server Finished
+
+    // 6) server CCS + Finished
+    write_record(t, CHANGE_CIPHER_SPEC, &[0x01])?;
+    let svd = hs::finished_verify_data(&master, b"server finished", &tr.hash());
+    let sfin = hs::hs_wrap(HT_FINISHED, &svd);
+    let sealed = seal(&server_keys, 0, HANDSHAKE, &sfin, &cfg.finished_iv);
+    write_record(t, HANDSHAKE, &sealed)?;
+
+    Ok(Session { t, write_keys: server_keys, read_keys: client_keys, write_seq: 1, read_seq: 1, iv_ctr: 0x80 })
+}
