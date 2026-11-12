@@ -1,52 +1,70 @@
-# OpenPlug — volba jazyka/stacku pro iOS + Android (2026-11-12)
+# OpenPlug — language/stack choice for iOS + Android (2026-11-12)
 
-## Nejdřív ten skutečný problém: Bluetooth transport, ne jazyk
+## First, the real problem: Bluetooth transport, not language
 
-Dongle mluví **Bluetooth Classic RFCOMM/SPP** (náš záznam: 357 SPP rámců, **0 BLE/GATT**).
+The dongle speaks **Bluetooth Classic RFCOMM/SPP** (our capture: 357 SPP frames,
+**0 BLE/GATT**).
 
-- **Android**: SPP je bez problémů (`BluetoothSocket.createRfcommSocketToServiceRecord`). Žádné omezení.
-- **iOS**: třetí strany **nemají přístup k libovolnému Classic SPP**. Jde to jen přes:
-  1. **External Accessory framework** — vyžaduje **MFi** certifikaci dongle a protocol string, nebo
-  2. **BLE (Core Bluetooth)** — pokud je dongle dual-mode a nabízí i LE.
+- **Android**: SPP is no problem (`BluetoothSocket.createRfcommSocketToServiceRecord`).
+- **iOS**: third parties cannot use arbitrary Classic SPP. Only via:
+  1. **External Accessory framework** — requires the accessory to be **MFi** certified and a protocol string, or
+  2. **BLE (Core Bluetooth)** — if the dongle is dual-mode and also advertises LE.
 
-**VYŘEŠENO (research, 2026-11-12):** DataPlug je **dual-mode Bluetooth, NENÍ MFi**. iOS jede přes **Core Bluetooth (BLE)**. Důkazy:
-- FCC ID **T8RDP15** (model DP15, 2015; novější **T8RDP22**, 2023) má na jednom 2,4 GHz zařízení **dva granty**: DTS (= Bluetooth LE) + DSS (= Bluetooth BR/EDR Classic). Dual-mode rádio. (fccid.io/T8RDP15)
-- Nikde žádné „Made for iPhone" / MFi (TEXA, Škoda/VW/SEAT, Apple). SEAT brožura výslovně: dongle **nepárovat přes nastavení Bluetoothu**, párování je v appce přes PIN — to je BLE vzor (ne MFi/Classic bond).
-- EU DoC (TEXA DoC-DATAPLUG-08): „CAN BUS INTERFACE", brandy VW/SEAT/Škoda/Audi, „DataPlug 1000" (= náš štítek SW 1000), RED 2014/53/EU, 0 dBm.
-- Náš Android záznam = Classic/SPP strana; iOS používá BLE stranu téhož dongle.
-- Zbývá jen potvrdit BLE skenerem u zapnutého dongle (uživatel udělá) + že přes BLE GATT běží tentýž TLS-SRP+protobuf tunel (vysoce pravděpodobné — protokol je transport-agnostický).
+**RESOLVED (research, 2026-11-12):** the DataPlug is **dual-mode Bluetooth, NOT
+MFi**. iOS goes via **Core Bluetooth (BLE)**. Evidence:
+- FCC ID **T8RDP15** (model DP15, 2015; newer **T8RDP22**, 2023) carries **two
+  grants** on one 2.4 GHz device: DTS (= Bluetooth LE) + DSS (= Bluetooth BR/EDR
+  Classic). A dual-mode radio. (fccid.io/T8RDP15)
+- No "Made for iPhone" / MFi anywhere (TEXA, Škoda/VW/SEAT, Apple). The SEAT
+  brochure explicitly says do **not** pair the dongle via the phone's Bluetooth
+  settings — pairing is in-app via a PIN, which is the BLE pattern (not an
+  MFi/Classic bond).
+- EU DoC (TEXA DoC-DATAPLUG-08): "CAN BUS INTERFACE", brands VW/SEAT/Škoda/Audi,
+  "DataPlug 1000" (= our label SW 1000), RED 2014/53/EU, 0 dBm.
+- Our Android capture = the Classic/SPP side; iOS uses the BLE side of the same dongle.
+- Remaining: confirm BLE with a scanner on the powered dongle (the user will do
+  this) + that the same TLS-SRP+protobuf tunnel runs over BLE GATT (highly likely
+  — the protocol is transport-agnostic).
 
-Tohle rozhodnutí je nezávislé na jazyku — řeší se v tenké transportní vrstvě. **Závěr: iOS i Android proveditelné, jádro sdílené, transport = SPP (Android) / BLE GATT (iOS).**
+This decision is independent of the language — it lives in a thin transport layer.
+**Conclusion: both iOS and Android feasible, shared core, transport = SPP
+(Android) / BLE GATT (iOS).**
 
-## Doporučená architektura: sdílené Rust jádro + nativní tenké skořápky
+## Recommended architecture: shared Rust core + thin native shells
 
 ```
-┌ UI            Android: Kotlin+Compose   │  iOS: SwiftUI          (tenké, nativní)
-├ Transport     Android: RFCOMM SPP        │  iOS: BLE / ExternalAccessory  (tenký shim)
-└ JÁDRO (Rust, sdílené, přes UniFFI → Kotlin+Swift bindings)
-     TLS-SRP  ·  protobuf  ·  transakce/reassembly  ·  OBD/UDS PDU  ·  dekódování objektů
+┌ UI            Android: Kotlin+Compose   │  iOS: SwiftUI          (thin, native)
+├ Transport     Android: RFCOMM SPP        │  iOS: BLE / ExternalAccessory  (thin shim)
+└ CORE (Rust, shared, via UniFFI → Kotlin+Swift bindings)
+     TLS-SRP  ·  protobuf  ·  transactions/reassembly  ·  OBD/UDS PDU  ·  data objects
 ```
 
-**Jádro v Rustu** (jednou, identické na obou platformách):
-- **TLS-SRP**: crate `mbedtls` (Rust bindings na mbedTLS — stejná knihovna jako originál, takže ciphersuite `TLS_SRP_SHA_WITH_AES_128_CBC_SHA` sedí 1:1). Pure-Rust SRP+TLS by byl risk; mbedtls je pragmatická jistota.
-- **protobuf**: `prost` z rekonstruovaného `.proto` (schéma je v `o/P6F4jn8H6L.java`, 72 zpráv — viz [[protocol_spec]]).
-- Stavový automat spojení, `TransactionManager`, fragmentace, builder OBD/UDS PDU, dekódování datových objektů.
-- Ven jednoduché API (`connect(transport)`, `authenticate(pin)`, `subscribe(url)`, `send_pdu(...)`, event stream) přes **UniFFI** → generuje Kotlin i Swift.
+**Core in Rust** (written once, identical on both platforms):
+- **TLS-SRP**: implemented directly (our own TLS 1.2 record + handshake for the one
+  ciphersuite the dongle uses, 0xC01D) — no C dependency; fully offline-testable.
+- **protobuf**: a generic codec now; `prost` from the reconstructed `.proto` later.
+- Connection state machine, `TransactionManager`, fragmentation, an OBD/UDS PDU
+  builder, data-object decoding.
+- Exposes a simple API (`connect(transport)`, `authenticate(pin)`,
+  `subscribe(url)`, `send_pdu(...)`, an event stream) via **UniFFI** → generates
+  Kotlin and Swift.
 
-**Transport** dodává bajty do jádra, per-platforma (jediné místo, kde se iOS/Android liší).
-**UI** tenké nativní; případně Compose Multiplatform, ale UI je malé, nativní je nejjednodušší.
+**Transport** feeds bytes into the core, per platform (the only place iOS/Android differ).
+**UI** thin native; optionally Compose Multiplatform, but the UI is small so native is simplest.
 
-### Proč Rust jádro, ne alternativy
-| Varianta | Problém |
+### Why a Rust core, not the alternatives
+| Option | Issue |
 |---|---|
-| **Rust core + UniFFI** ✅ | TLS-SRP + protokol napsané jednou, memory-safe, identické. mbedtls crate dá přesně potřebný SRP suite. Platformní BT izolovaný v shimu. |
-| Kotlin Multiplatform + Compose MP | UI sdílené pěkně, ale TLS-SRP na iOS (Kotlin/Native) je bolest — mbedtls přes cinterop jde, ale křehké. |
-| Flutter/Dart | Dart nemá TLS-SRP → stejně FFI do mbedtls; iOS BT Classic omezení zůstává. Nic navíc. |
-| Reuse `libdongles.so`/`libmbedtls.so` z APK | ELF jen pro Android, na iOS nepoužitelné; redistribuce cizí binárky (TEXA) právně horší. Reimplementace je čistší. |
+| **Rust core + UniFFI** ✅ | TLS-SRP + protocol written once, memory-safe, identical. Platform BT isolated in a shim. |
+| Kotlin Multiplatform + Compose MP | UI shares nicely, but TLS-SRP on iOS (Kotlin/Native) is painful. |
+| Flutter/Dart | Dart has no TLS-SRP → FFI into C anyway; the iOS BT constraint remains. |
+| Reuse `libdongles.so`/`libmbedtls.so` from the APK | ELF Android-only, unusable on iOS; redistributing a vendor binary (TEXA) is legally worse. A reimplementation is cleaner. |
 
-## Pořadí prací
-1. **Teď (offline, hotovo):** protokol zmapován ([[protocol_spec]]), Frida dumper připraven (`tools/frida_dump_plaintext.js`).
-2. **1 živé plaintext zachycení** (zapalování zap.) → doplnit `.proto` a katalog `url` objektů.
-3. **Rust jádro** proti zachyceným bajtům: nejdřív TLS-SRP handshake (identita `PA`, PIN), pak `authenticate` → `subscribe`/`sendPDU`. Testovat napřed na desktopu přes BT dongle.
-4. **Android shim + UI** (rychlá cesta k ověření end-to-end).
-5. **iOS transport** podle výsledku BLE/MFi ověření, pak SwiftUI.
+## Work order
+1. **Now (offline, done):** protocol mapped, TLS-SRP params found, transport for
+   both platforms decided, API→modules mapped, crypto core built and verified.
+2. **One live plaintext capture** (ignition on) → fill in the `.proto` and the `url` object catalog.
+3. **Rust core against captured bytes**: TLS-SRP handshake (done), then
+   `authenticate` → `subscribe`/`sendPDU`. Test first on desktop via a BT adapter.
+4. **Android shim + UI** (fast path to an end-to-end check).
+5. **iOS transport** (BLE), then SwiftUI.

@@ -1,19 +1,19 @@
-//! Abstrakce transportu. Jádro čte/píše jen bajty; čím se přenášejí
-//! (Android RFCOMM/SPP, iOS BLE GATT, desktop BT adaptér, test pipe)
-//! řeší konkrétní implementace mimo jádro.
+//! Transport abstraction. The core only reads/writes bytes; how they travel
+//! (Android RFCOMM/SPP, iOS BLE GATT, a desktop BT adapter, a test pipe) is
+//! handled by concrete implementations outside the core.
 
 use std::io;
 
-/// Obousměrný bajtový kanál k donglu. Blokující varianta pro jednoduchost;
-/// async obal lze přidat později.
+/// Bidirectional byte channel to the dongle. Blocking for simplicity;
+/// an async wrapper can be added later.
 pub trait Transport {
-    /// Odešle všechny bajty.
+    /// Send all bytes.
     fn send(&mut self, data: &[u8]) -> io::Result<()>;
-    /// Přečte až `buf.len()` bajtů, vrátí počet (>0, nebo 0 při uzavření).
+    /// Read up to `buf.len()` bytes; returns the count (>0, or 0 when closed).
     fn recv(&mut self, buf: &mut [u8]) -> io::Result<usize>;
 }
 
-/// In-memory duplexní pipe pro offline testy (dvě propojené poloviny).
+/// In-memory duplex pipe for offline tests (two linked halves).
 pub mod testpipe {
     use super::Transport;
     use std::collections::VecDeque;
@@ -23,11 +23,11 @@ pub mod testpipe {
     type Shared = Arc<Mutex<VecDeque<u8>>>;
 
     pub struct Half {
-        pub inbox: Shared,  // odkud čtu
-        pub outbox: Shared, // kam píšu
+        pub inbox: Shared,  // where I read from
+        pub outbox: Shared, // where I write to
     }
 
-    /// Vytvoří propojenou dvojici (a, b): co pošle a, přečte b a naopak.
+    /// Creates a linked pair (a, b): what a sends, b reads, and vice versa.
     pub fn pair() -> (Half, Half) {
         let x: Shared = Arc::new(Mutex::new(VecDeque::new()));
         let y: Shared = Arc::new(Mutex::new(VecDeque::new()));

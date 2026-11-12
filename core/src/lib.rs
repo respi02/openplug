@@ -1,19 +1,22 @@
 //! # openplug-core
 //!
-//! Sdílené jádro OpenPlugu — otevřené náhrady aplikace Škoda Connect LITE pro
-//! Bluetooth OBD dongle „Škoda DataPlug by TEXA". Nezávislé na platformě;
-//! bindingy pro Android/iOS přes UniFFI (připraví se později).
+//! Shared core of OpenPlug — an open replacement for the Škoda Connect LITE app
+//! for the "Škoda DataPlug by TEXA" Bluetooth OBD dongle. Platform-independent;
+//! Android/iOS bindings via UniFFI (to be added later).
 //!
-//! Vrstvy (viz research/notes/protocol_spec.md):
-//!   Transport (SPP/BLE/test)  →  TLS-SRP tunel (mbedtls)  →  protobuf
-//!   `_TDongleReq/Rsp`  →  transakce  →  OBD/UDS PDU + datové objekty.
+//! Layers (see research/notes/protocol_spec.md):
+//!   Transport (SPP/BLE/test)  →  TLS-SRP tunnel (TLS 1.2)  →  protobuf
+//!   `_TDongleReq/Rsp`  →  transactions  →  OBD/UDS PDU + data objects.
 //!
-//! Hotovo: [`transport`] trait + test pipe, [`srp`] (SRP-6a RFC 5054),
-//! [`groups`] (skupina DataPlugu = RFC5054-1536, g=2, identita „PA").
-//! Zbývá (čeká na 1 plaintext záznam): TLS record vrstva, protobuf kodek,
-//! transakční automat, PDU builder.
+//! Done: [`transport`] trait + test pipe, [`srp`] (SRP-6a RFC 5054),
+//! [`groups`] (dongle group = RFC5054-1536, g=2, identity "PA"),
+//! [`tls_prf`], [`tls_record`] (Encrypt-then-MAC), [`tls_handshake`],
+//! [`tls_client`] (full TLS-SRP handshake), [`protobuf`] (generic codec).
+//! Remaining (needs one live capture): the `.proto` schema, transactions,
+//! PDU builder.
 
 pub mod groups;
+pub mod protobuf;
 pub mod srp;
 pub mod tls_record;
 pub mod tls_prf;
@@ -21,10 +24,10 @@ pub mod tls_handshake;
 pub mod tls_client;
 pub mod transport;
 
-/// SRP identita pro PIN autentizaci (zachyceno: SRP extension username).
+/// SRP identity for PIN authentication (captured from the SRP extension username).
 pub const SRP_IDENTITY_PIN: &str = "PA";
 
-/// Ciphersuite DataPlugu (TLS 1.2). SRP hash = SHA-1, data = AES-128-CBC.
+/// The DataPlug ciphersuite (TLS 1.2). SRP hash = SHA-1, bulk = AES-128-CBC.
 pub const CIPHERSUITE: u16 = 0xC01D; // TLS_SRP_SHA_WITH_AES_128_CBC_SHA
 
 /// TLS content types (RFC 5246).

@@ -1,8 +1,9 @@
-//! TLS 1.2 handshake pro TLS-SRP (RFC 5246 + RFC 5054).
-//! Odvození klíčů z SRP premaster a (de)serializace handshake zpráv
-//! specifických pro ciphersuite 0xC01D.
+//! TLS 1.2 handshake for TLS-SRP (RFC 5246 + RFC 5054). Key derivation from the
+//! SRP premaster and (de)serialization of the handshake messages specific to
+//! ciphersuite 0xC01D.
 
 use num_bigint::BigUint;
+use sha2::{Digest, Sha256};
 
 use crate::tls_prf::prf;
 use crate::tls_record::DirKeys;
@@ -18,9 +19,18 @@ pub fn master_secret(premaster: &[u8], client_random: &[u8; 32], server_random: 
     ms
 }
 
-/// Key expansion pro AES-128-CBC-SHA: mac 20 B, key 16 B, žádný fixní IV.
+/// Extended Master Secret (RFC 7627): master = PRF(premaster, "extended master secret", session_hash).
+/// session_hash = SHA256(ClientHello .. ClientKeyExchange).
+pub fn extended_master_secret(premaster: &[u8], session_hash: &[u8]) -> [u8; 48] {
+    let out = prf(premaster, b"extended master secret", session_hash, 48);
+    let mut ms = [0u8; 48];
+    ms.copy_from_slice(&out);
+    ms
+}
+
+/// Key expansion for AES-128-CBC-SHA: mac 20 B, key 16 B, no fixed IV.
 /// key_block = PRF(master, "key expansion", server_random || client_random, 72).
-/// Vrací (client_write_keys, server_write_keys).
+/// Returns (client_write_keys, server_write_keys).
 pub fn key_block(master: &[u8; 48], client_random: &[u8; 32], server_random: &[u8; 32]) -> (DirKeys, DirKeys) {
     let mut seed = Vec::with_capacity(64);
     seed.extend_from_slice(server_random);
@@ -42,9 +52,33 @@ pub fn finished_verify_data(master: &[u8; 48], label: &[u8], handshake_hash: &[u
     v
 }
 
-// ---- handshake zprávy specifické pro TLS-SRP ----
+/// Accumulator of handshake messages (for session_hash and Finished verify_data).
+#[derive(Default)]
+pub struct Transcript(pub Vec<u8>);
+impl Transcript {
+    pub fn add(&mut self, handshake_msg: &[u8]) { self.0.extend_from_slice(handshake_msg); }
+    pub fn hash(&self) -> Vec<u8> { Sha256::digest(&self.0).to_vec() }
+}
 
-/// SRP parametry ze ServerKeyExchange (RFC 5054 §2.8.4).
+/// Wraps a handshake message in the `type(1) | len(3)` header.
+pub fn hs_wrap(htype: u8, body: &[u8]) -> Vec<u8> {
+    let mut out = vec![htype, (body.len() >> 16) as u8, (body.len() >> 8) as u8, body.len() as u8];
+    out.extend_from_slice(body);
+    out
+}
+
+/// Unwraps one TLS handshake message `type(1)|len(3)|body` from a buffer.
+pub fn handshake_body(hs: &[u8]) -> Option<(u8, &[u8])> {
+    if hs.len() < 4 { return None; }
+    let typ = hs[0];
+    let len = ((hs[1] as usize) << 16) | ((hs[2] as usize) << 8) | hs[3] as usize;
+    if 4 + len > hs.len() { return None; }
+    Some((typ, &hs[4..4 + len]))
+}
+
+// ---- handshake messages specific to TLS-SRP ----
+
+/// SRP parameters from the ServerKeyExchange (RFC 5054 §2.8.4).
 pub struct ServerSrpParams {
     pub n: BigUint,
     pub g: BigUint,
@@ -52,7 +86,7 @@ pub struct ServerSrpParams {
     pub b_pub: BigUint,
 }
 
-/// Parsuje tělo ServerKeyExchange (bez TLS record/handshake hlavičky):
+/// Parses the ServerKeyExchange body (without TLS record/handshake header):
 /// opaque N<1..2^16-1> | g<1..2^16-1> | salt<1..2^8-1> | B<1..2^16-1>.
 pub fn parse_server_key_exchange(body: &[u8]) -> Option<ServerSrpParams> {
     let mut p = 0usize;
@@ -77,55 +111,19 @@ pub fn parse_server_key_exchange(body: &[u8]) -> Option<ServerSrpParams> {
     })
 }
 
-/// Pomůcka: odbal TLS handshake zprávu `type(1)|len(3)|body` z plného
-/// handshake record payloadu (po odstranění TLS record hlavičky 5 B).
-pub fn handshake_body(hs: &[u8]) -> Option<(u8, &[u8])> {
-    if hs.len() < 4 { return None; }
-    let typ = hs[0];
-    let len = ((hs[1] as usize) << 16) | ((hs[2] as usize) << 8) | hs[3] as usize;
-    if 4 + len > hs.len() { return None; }
-    Some((typ, &hs[4..4 + len]))
-}
-
-/// Serializuje ClientKeyExchange pro SRP: opaque A<1..2^16-1>.
+/// Serializes the ClientKeyExchange for SRP: opaque A<1..2^16-1>.
 pub fn build_client_key_exchange(a_pub: &BigUint) -> Vec<u8> {
     let a = a_pub.to_bytes_be();
     let mut body = Vec::with_capacity(2 + a.len());
     body.extend_from_slice(&(a.len() as u16).to_be_bytes());
     body.extend_from_slice(&a);
-    // handshake hlavička: type 16 (ClientKeyExchange) | len(3)
+    // handshake header: type 16 (ClientKeyExchange) | len(3)
     let mut out = vec![16u8, (body.len() >> 16) as u8, (body.len() >> 8) as u8, body.len() as u8];
     out.extend_from_slice(&body);
     out
 }
 
-use sha2::{Digest, Sha256};
-
-/// Extended Master Secret (RFC 7627): master = PRF(premaster, "extended master secret", session_hash).
-/// session_hash = SHA256(ClientHello .. ClientKeyExchange).
-pub fn extended_master_secret(premaster: &[u8], session_hash: &[u8]) -> [u8; 48] {
-    let out = prf(premaster, b"extended master secret", session_hash, 48);
-    let mut ms = [0u8; 48];
-    ms.copy_from_slice(&out);
-    ms
-}
-
-/// Akumulátor handshake zpráv (pro session_hash a Finished verify_data).
-#[derive(Default)]
-pub struct Transcript(pub Vec<u8>);
-impl Transcript {
-    pub fn add(&mut self, handshake_msg: &[u8]) { self.0.extend_from_slice(handshake_msg); }
-    pub fn hash(&self) -> Vec<u8> { Sha256::digest(&self.0).to_vec() }
-}
-
-/// Zabalí handshake zprávu do hlavičky `type(1) | len(3)`.
-pub fn hs_wrap(htype: u8, body: &[u8]) -> Vec<u8> {
-    let mut out = vec![htype, (body.len() >> 16) as u8, (body.len() >> 8) as u8, body.len() as u8];
-    out.extend_from_slice(body);
-    out
-}
-
-/// Vyjednaná rozšíření ze ServerHello.
+/// Extensions negotiated in the ServerHello.
 pub struct ServerHello {
     pub server_random: [u8; 32],
     pub cipher: u16,
@@ -134,7 +132,7 @@ pub struct ServerHello {
     pub extended_master_secret: bool,
 }
 
-/// Parsuje tělo ServerHello (bez handshake hlavičky).
+/// Parses the ServerHello body (without the handshake header).
 pub fn parse_server_hello(body: &[u8]) -> Option<ServerHello> {
     let mut p = 0usize;
     if body.len() < 2 + 32 + 1 { return None; }
@@ -159,9 +157,10 @@ pub fn parse_server_hello(body: &[u8]) -> Option<ServerHello> {
     Some(ServerHello { server_random: sr, cipher, session_id, encrypt_then_mac: etm, extended_master_secret: ems })
 }
 
-/// Sestaví ClientHello tělo (bez handshake hlavičky) pro TLS-SRP s identitou.
-/// Nabízí cipher 0xC01D + rozšíření: encrypt_then_mac, extended_master_secret,
-/// ec_point_formats, supported_groups, SRP(identity). Odpovídá tomu, co dongle čeká.
+/// Builds the ClientHello body (without the handshake header) for TLS-SRP with an
+/// identity. Offers cipher 0xC01D + extensions: encrypt_then_mac,
+/// extended_master_secret, ec_point_formats, supported_groups, SRP(identity) —
+/// matching what the dongle expects.
 pub fn build_client_hello(client_random: &[u8; 32], identity: &[u8]) -> Vec<u8> {
     let mut b = Vec::new();
     b.extend_from_slice(&[0x03, 0x03]);      // client_version TLS 1.2
@@ -169,16 +168,16 @@ pub fn build_client_hello(client_random: &[u8; 32], identity: &[u8]) -> Vec<u8> 
     b.push(0);                                // session_id len = 0
     b.extend_from_slice(&[0x00, 0x02]);       // cipher_suites len = 2
     b.extend_from_slice(&[0xC0, 0x1D]);       // TLS_SRP_SHA_WITH_AES_128_CBC_SHA
-    b.push(1); b.push(0);                     // compression: 1 metoda, null
-    // rozšíření
+    b.push(1); b.push(0);                     // compression: 1 method, null
+    // extensions
     let mut ext = Vec::new();
     // supported_groups: secp256r1(0x0017), secp384r1(0x0018)
     ext.extend_from_slice(&[0x00, 0x0a, 0x00, 0x06, 0x00, 0x04, 0x00, 0x17, 0x00, 0x18]);
     // ec_point_formats: uncompressed
     ext.extend_from_slice(&[0x00, 0x0b, 0x00, 0x02, 0x01, 0x00]);
-    // encrypt_then_mac (prázdné)
+    // encrypt_then_mac (empty)
     ext.extend_from_slice(&[0x00, 0x16, 0x00, 0x00]);
-    // extended_master_secret (prázdné)
+    // extended_master_secret (empty)
     ext.extend_from_slice(&[0x00, 0x17, 0x00, 0x00]);
     // SRP: type 0x000c, len = 1+identity, srp_I<1..255>
     ext.extend_from_slice(&[0x00, 0x0c]);
@@ -190,9 +189,9 @@ pub fn build_client_hello(client_random: &[u8; 32], identity: &[u8]) -> Vec<u8> 
     b
 }
 
-// ---- serverová strana (pro loopback test / dokumentaci protokolu) ----
+// ---- server side (for the loopback test / protocol documentation) ----
 
-/// Z ClientHello vytáhne client_random a SRP identitu.
+/// Extracts client_random and the SRP identity from a ClientHello.
 pub fn parse_client_hello(body: &[u8]) -> Option<([u8; 32], Vec<u8>)> {
     let mut p = 0usize;
     if body.len() < 2 + 32 + 1 { return None; }
@@ -218,7 +217,7 @@ pub fn parse_client_hello(body: &[u8]) -> Option<([u8; 32], Vec<u8>)> {
     Some((cr, identity?))
 }
 
-/// Sestaví ServerHello tělo (vyjednává encrypt_then_mac + extended_master_secret).
+/// Builds the ServerHello body (negotiates encrypt_then_mac + extended_master_secret).
 pub fn build_server_hello(server_random: &[u8; 32], session_id: &[u8]) -> Vec<u8> {
     let mut b = Vec::new();
     b.extend_from_slice(&[0x03, 0x03]);
@@ -235,7 +234,7 @@ pub fn build_server_hello(server_random: &[u8; 32], session_id: &[u8]) -> Vec<u8
     b
 }
 
-/// Sestaví ServerKeyExchange tělo: N<2> | g<2> | salt<1> | B<2>.
+/// Builds the ServerKeyExchange body: N<2> | g<2> | salt<1> | B<2>.
 pub fn build_server_key_exchange(n: &BigUint, g: &BigUint, salt: &[u8], b_pub: &BigUint) -> Vec<u8> {
     let mut out = Vec::new();
     for v in [n.to_bytes_be(), g.to_bytes_be()] {

@@ -1,5 +1,6 @@
-//! Plný loopback TLS-SRP handshake: klient vs server přes in-memory pipe,
-//! navázání session a výměna aplikačních dat oběma směry. Offline, bez dongle.
+//! Full TLS-SRP handshake loopback: client vs server over an in-memory pipe,
+//! session establishment and application-data exchange in both directions.
+//! Offline, no dongle.
 
 use std::thread;
 
@@ -12,16 +13,15 @@ fn bn(h: &str) -> BigUint { BigUint::parse_bytes(h.as_bytes(), 16).unwrap() }
 
 #[test]
 fn full_tls_srp_handshake_loopback() {
-    let (mut client_half, server_half) = testpipe::pair();
+    let (client_half, server_half) = testpipe::pair();
 
     let salt = hex::decode("1DDB115A83D11D50171DC1BB4C39F15E643C0FB869B953CC2F28D5DFA7C4F2F0").unwrap();
     let password = b"1234".to_vec();
     let salt_s = salt.clone();
     let pw_s = password.clone();
 
-    // server na vlákně (= dongle)
+    // server on a thread (= dongle)
     let server = thread::spawn(move || {
-        let mut sh = server_half;
         let cfg = ServerConfig {
             group: &RFC5054_1536,
             password: &pw_s,
@@ -31,18 +31,18 @@ fn full_tls_srp_handshake_loopback() {
             session_id: vec![0x11; 32],
             finished_iv: [0x77u8; 16],
         };
-        let mut sess = server_handshake(&mut sh, &cfg).expect("server handshake");
-        // přečti klientův požadavek, odpověz (simulace čtení dat z dongle)
+        let mut sess = server_handshake(server_half, &cfg).expect("server handshake");
+        // read the client's request, respond (simulates reading data from the dongle)
         let req = sess.recv_app().expect("server recv");
         assert_eq!(req, b"subscribe: rpm, battery_voltage, coolant_temp");
         sess.send_app(b"rpm=0 battery=12.4V coolant=20C").expect("server send");
-        // ještě jeden round
+        // one more round
         let req2 = sess.recv_app().expect("server recv2");
         assert_eq!(req2, b"get: vin");
         sess.send_app(b"vin=TMBXXXXXXXXXXXXXX").expect("server send2");
     });
 
-    // klient na hlavním vlákně (= OpenPlug)
+    // client on the main thread (= OpenPlug)
     let cfg = ClientConfig {
         group: &RFC5054_1536,
         identity: b"PA",
@@ -51,7 +51,7 @@ fn full_tls_srp_handshake_loopback() {
         a: bn("A1B2C3D4E5F600112233445566778899AABBCCDDEEFF00112233445566778899"),
         finished_iv: [0x66u8; 16],
     };
-    let mut sess = client_handshake(&mut client_half, &cfg).expect("client handshake");
+    let mut sess = client_handshake(client_half, &cfg).expect("client handshake");
 
     sess.send_app(b"subscribe: rpm, battery_voltage, coolant_temp").expect("client send");
     let rsp = sess.recv_app().expect("client recv");

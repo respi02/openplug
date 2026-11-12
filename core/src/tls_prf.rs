@@ -1,5 +1,5 @@
-//! TLS 1.2 PRF (RFC 5246 §5) s SHA-256 — základ pro master secret,
-//! key expansion a Finished verify_data.
+//! TLS 1.2 PRF (RFC 5246 §5) with SHA-256 — the basis for the master secret,
+//! key expansion and Finished verify_data.
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -11,7 +11,7 @@ fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
     m.finalize().into_bytes().to_vec()
 }
 
-/// P_hash(secret, seed) rozvinuté na `out_len` bajtů.
+/// P_hash(secret, seed) expanded to `out_len` bytes.
 fn p_hash(secret: &[u8], seed: &[u8], out_len: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(out_len);
     let mut a = hmac(secret, seed); // A(1) = HMAC(secret, seed)

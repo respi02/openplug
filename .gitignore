@@ -16,3 +16,11 @@ tools/swapdex.py
 tools/frida_dump_plaintext.js
 *.keystore
 apk/patched/
+
+# Untranslated Czech research notes (held for review/translation before publishing)
+SHA256SUMS
+research/report-feasibility-2026-11-12.md
+research/notes/hardware_protocol.md
+research/notes/legal.md
+research/notes/original_app_service.md
+research/notes/technical_alternatives.md

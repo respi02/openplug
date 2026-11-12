@@ -1,34 +1,56 @@
-# OpenPlug — licence kódu a právní použitelnost (2026-11-12)
+# OpenPlug — code licensing and legal usability (2026-11-12)
 
-## 1. Závislosti jádra (`core/`) — vše permisivní, OK
-| Crate | Licence |
+## 1. Core dependencies (`core/`) — all permissive, OK
+| Crate | License |
 |---|---|
 | num-bigint, num-traits, num-integer | MIT OR Apache-2.0 |
-| sha1, digest, block-buffer, crypto-common, cpufeatures, cfg-if | MIT OR Apache-2.0 |
+| sha1, sha2, digest, block-buffer, crypto-common, cpufeatures, cfg-if | MIT OR Apache-2.0 |
+| aes, hmac, cipher, inout | MIT OR Apache-2.0 |
 | thiserror, hex | MIT OR Apache-2.0 |
 | generic-array | MIT |
 
-Žádný copyleft (GPL/LGPL/MPL). Můžeme je použít v otevřeném i uzavřeném projektu, komerčně, na iOS i Android. Jediná povinnost: zachovat texty licencí a copyright notice (standardní „third-party licenses“ obrazovka v appce). OpenPlug sám navržen jako **MIT OR Apache-2.0** (viz `core/Cargo.toml`).
+No copyleft (GPL/LGPL/MPL). Usable in open or closed projects, commercially, on
+iOS and Android. The only obligation is to keep the license texts and copyright
+notices (a standard "third-party licenses" screen in the app). OpenPlug itself is
+licensed **MIT** (see `core/Cargo.toml`).
 
-## 2. Standardy, které implementujeme — volně implementovatelné
-- **SRP-6a / TLS-SRP**: RFC 2945 / RFC 5054 (IETF, volné).
-- **TLS 1.2**: RFC 5246 (volné). AES, HMAC, SHA — veřejné standardy.
-- **protobuf**: formát Google, implementace vlastní (nebo `prost`, Apache-2.0).
-- **OBD-II / UDS / KWP / CAN**: ISO 15765, ISO 14229, ISO 14230 — otevřené normy. Samotné ISO dokumenty jsou placené, ale protokoly implementovat smíme.
+## 2. Standards we implement — freely implementable
+- **SRP-6a / TLS-SRP**: RFC 2945 / RFC 5054 (IETF, free).
+- **TLS 1.2**: RFC 5246 (free). AES, HMAC, SHA — public standards.
+- **protobuf**: Google's format; our own implementation (or `prost`, Apache-2.0).
+- **OBD-II / UDS / KWP / CAN**: ISO 15765, ISO 14229, ISO 14230 — open standards.
+  The ISO documents themselves are paid, but implementing the protocols is allowed.
 
-Nic z toho není TEXA/Cymotive duševní vlastnictví — jsou to otevřené standardy.
+None of this is TEXA/Cymotive intellectual property — they are open standards.
 
-## 3. Reimplementace protokolu DataPlugu — zákonná interoperabilita
-- **Nepřebíráme cizí kód.** OpenPlug je čistá reimplementace *protokolu* (chování na drátě), ne kopie `libdongles.so`/`libmbedtls.so`. Protokoly, rozhraní a „metody fungování“ nejsou chráněné autorským právem.
-- **EU rámec:** Směrnice 2009/24/ES o právní ochraně počítačových programů — čl. 1 odst. 2 vylučuje z ochrany myšlenky, principy a **rozhraní**; čl. 6 výslovně povoluje dekompilaci nezbytnou pro **interoperabilitu**. ČR: § 66 odst. 1 písm. d) a § 66 odst. 4 AZ (viz [[legal]]).
-- **Vlastnictví:** uživatel vlastní dongle, analyzuje vlastní provoz vlastního zařízení s vlastními daty z vlastního auta. To je nejsilnější poloha pro interoperabilitu.
-- **TLS-SRP jako „ochranné opatření“ (TPM):** teoreticky by někdo mohl TLS-SRP označit za technické ochranné opatření a namítat jeho obcházení. Proti tomu stojí: (a) účelem je čistě interoperabilita s vlastním HW, ne přístup k cizímu chráněnému obsahu; (b) heslo (PIN) je legitimně v držení majitele (na štítku); (c) EU interoperabilní výjimka. Riziko nízké, ale ne nulové — proto držet striktně interoperabilní rámec.
+## 3. Reimplementing the DataPlug protocol — lawful interoperability
+- **We do not take vendor code.** OpenPlug is a clean reimplementation of the
+  *protocol* (on-the-wire behavior), not a copy of `libdongles.so`/`libmbedtls.so`.
+  Protocols, interfaces and "methods of operation" are not protected by copyright.
+- **EU framework:** Directive 2009/24/EC on the legal protection of computer
+  programs — Art. 1(2) excludes ideas, principles and **interfaces** from
+  protection; Art. 6 explicitly permits the decompilation necessary for
+  **interoperability**. CZ: § 66(1)(d) and § 66(4) of Act No. 121/2000 Sb.
+- **Ownership:** the user owns the dongle and analyses their own traffic from
+  their own device with their own data from their own car. This is the strongest
+  position for interoperability.
+- **TLS-SRP as a "technological protection measure" (TPM):** in theory someone
+  could call TLS-SRP a TPM and object to circumventing it. Against that: (a) the
+  purpose is purely interoperability with the user's own hardware, not accessing
+  someone else's protected content; (b) the password (PIN) is legitimately held
+  by the owner (on the label); (c) the EU interoperability exception. Low risk but
+  not zero — keep a strictly interoperability-focused framing.
 
-## 4. Pravidla (co NESMÍ do repozitáře ani do distribuce)
-- Binárky TEXA/Cymotive (`lib*.so`), APK, firmware, konfigurační blob, podpisy.
-- `libkeys.so` tajemství (API klíče Phrase/Adjust, heslo k DB).
-- PIN dongle a fotky štítku s PINem.
-- Ochranné známky: projekt se jmenuje OpenPlug; v popisu nanejvýš „kompatibilní se Škoda DataPlug“. Žádná loga Škoda/VW/TEXA.
+## 4. Rules (what must NOT go into the repo or distribution)
+- TEXA/Cymotive binaries (`lib*.so`), the APK, firmware, the configuration blob, signatures.
+- `libkeys.so` secrets (Phrase/Adjust API keys, the DB password).
+- The dongle PIN and photos of the label with the PIN.
+- Trademarks: the project is named OpenPlug; in descriptions at most "compatible
+  with the Škoda DataPlug". No Škoda/VW/TEXA logos.
 
-## Závěr
-Kód můžeme **legálně použít i zveřejnit** (permisivní závislosti, otevřené standardy, čistá reimplementace pro interoperabilitu s vlastním HW). Podmínky: držet interoperabilní účel, nedistribuovat cizí binárky/klíče/PIN, nepoužívat ochranné známky. Před veřejným releasem doporučeno krátké právní přehlédnutí kvůli TPM nuanci.
+## Conclusion
+The code can be **used and published legally** (permissive dependencies, open
+standards, a clean reimplementation for interoperability with one's own hardware).
+Conditions: keep the interoperability purpose, do not distribute vendor
+binaries/keys/PIN, do not use trademarks. A short legal review before a public
+release is recommended because of the TPM nuance.

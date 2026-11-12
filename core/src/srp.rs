@@ -1,8 +1,9 @@
-//! SRP-6a dle RFC 5054 (TLS-SRP). Klientská i serverová strana pro výpočet
-//! premaster secretu. Hash = SHA-1 (ciphersuite TLS_SRP_SHA_WITH_AES_128_CBC_SHA).
+//! SRP-6a per RFC 5054 (TLS-SRP). Client and server sides for computing the
+//! premaster secret. Hash = SHA-1 (ciphersuite TLS_SRP_SHA_WITH_AES_128_CBC_SHA).
 //!
-//! DataPlug je SRP *server* (drží verifier). OpenPlug je SRP *klient*.
-//! Serverová strana je zde jen pro offline self-test (ověření shody klíče).
+//! The DataPlug is the SRP *server* (it holds the verifier). OpenPlug is the SRP
+//! *client*. The server side here exists only for the offline self-test
+//! (verifying both sides derive the same key).
 
 use num_bigint::BigUint;
 use num_traits::Zero;
@@ -16,7 +17,7 @@ fn h(parts: &[&[u8]]) -> Vec<u8> {
     d.finalize().to_vec()
 }
 
-/// PAD(x): levostranné doplnění nulami na délku N (v bajtech).
+/// PAD(x): left-pad x with zeros to the byte length of N.
 fn pad(x: &BigUint, n_len: usize) -> Vec<u8> {
     let b = x.to_bytes_be();
     if b.len() >= n_len { return b; }
@@ -25,7 +26,7 @@ fn pad(x: &BigUint, n_len: usize) -> Vec<u8> {
     out
 }
 
-/// Parametry odvozené ze skupiny.
+/// Parameters derived from the group.
 pub struct Srp {
     pub n: BigUint,
     pub g: BigUint,
@@ -59,7 +60,7 @@ impl Srp {
         self.g.modpow(x, &self.n)
     }
 
-    /// Klient: A = g^a mod N
+    /// Client: A = g^a mod N
     pub fn client_public(&self, a: &BigUint) -> BigUint {
         self.g.modpow(a, &self.n)
     }
@@ -69,11 +70,11 @@ impl Srp {
         (&self.k * v + self.g.modpow(b, &self.n)) % &self.n
     }
 
-    /// Klient premaster: S = (B - k * g^x) ^ (a + u*x) mod N
+    /// Client premaster: S = (B - k * g^x) ^ (a + u*x) mod N
     pub fn client_premaster(&self, b_pub: &BigUint, x: &BigUint, a: &BigUint, u: &BigUint) -> BigUint {
         let gx = self.g.modpow(x, &self.n);
         let kgx = (&self.k * gx) % &self.n;
-        // (B - kgx) mod N, bezpečně i při B < kgx
+        // (B - kgx) mod N, safe even when B < kgx
         let base = (b_pub % &self.n + &self.n - kgx) % &self.n;
         let exp = a + u * x;
         base.modpow(&exp, &self.n)
@@ -86,7 +87,7 @@ impl Srp {
     }
 }
 
-/// A musí být nenulové mod N (ochrana proti triviálnímu útoku).
+/// A must be non-zero mod N (guards against a trivial attack).
 pub fn valid_public(p: &BigUint, n: &BigUint) -> bool {
     !(p % n).is_zero()
 }

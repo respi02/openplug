@@ -1,7 +1,7 @@
-//! TLS 1.2 record vrstva pro DataPlug: `TLS_SRP_SHA_WITH_AES_128_CBC_SHA` (0xC01D)
-//! v režimu **Encrypt-then-MAC** (RFC 7366) — dongle ho vyjednává (viz ServerHello).
-//! Record = IV(16) || AES-128-CBC(plaintext || TLS-padding) || HMAC-SHA1(20).
-//! MAC se počítá nad (seq || type || version || len(IV+CT) || IV || CT).
+//! TLS 1.2 record layer for the DataPlug: `TLS_SRP_SHA_WITH_AES_128_CBC_SHA`
+//! (0xC01D) in **Encrypt-then-MAC** mode (RFC 7366) — the dongle negotiates it
+//! (see ServerHello). Record = IV(16) || AES-128-CBC(plaintext || TLS-padding)
+//! || HMAC-SHA1(20). The MAC covers (seq || type || version || len(IV+CT) || IV || CT).
 
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::Aes128;
@@ -15,15 +15,15 @@ pub const TLS12_VERSION: [u8; 2] = [0x03, 0x03];
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum RecordError {
-    #[error("MAC nesouhlasí")]
+    #[error("MAC mismatch")]
     BadMac,
-    #[error("špatný padding")]
+    #[error("bad padding")]
     BadPadding,
-    #[error("záznam příliš krátký / nezarovnaný")]
+    #[error("record too short / unaligned")]
     Short,
 }
 
-/// Směrové klíče (jedna strana): mac_key 20 B (SHA-1), enc_key 16 B (AES-128).
+/// Directional keys (one side): mac_key 20 B (SHA-1), enc_key 16 B (AES-128).
 pub struct DirKeys {
     pub mac_key: [u8; MAC_LEN],
     pub enc_key: [u8; 16],
@@ -59,7 +59,7 @@ fn aes_cbc_decrypt(key: &[u8; 16], iv: &[u8; BLOCK], data: &[u8]) -> Vec<u8> {
     out
 }
 
-/// MAC nad ciphertextem (Encrypt-then-MAC):
+/// MAC over the ciphertext (Encrypt-then-MAC):
 /// HMAC-SHA1(mac_key, seq(8) || type(1) || version(2) || len16(iv_ct) || iv_ct)
 fn mac_etm(mac_key: &[u8], seq: u64, ctype: u8, iv_ct: &[u8]) -> [u8; MAC_LEN] {
     let mut m = <HmacSha1 as Mac>::new_from_slice(mac_key).unwrap();
@@ -74,10 +74,10 @@ fn mac_etm(mac_key: &[u8], seq: u64, ctype: u8, iv_ct: &[u8]) -> [u8; MAC_LEN] {
     r
 }
 
-/// Zašifruje jeden record (Encrypt-then-MAC). `iv` = explicitní IV (prod. náhodný).
-/// Vrací `IV || AES-CBC(plaintext||padding) || HMAC`.
+/// Encrypts one record (Encrypt-then-MAC). `iv` = explicit IV (random in prod).
+/// Returns `IV || AES-CBC(plaintext||padding) || HMAC`.
 pub fn seal(k: &DirKeys, seq: u64, ctype: u8, plaintext: &[u8], iv: &[u8; BLOCK]) -> Vec<u8> {
-    // TLS padding na násobek bloku (padding je uvnitř šifry, bez MAC).
+    // TLS padding to a block multiple (padding is inside the cipher, not MAC'd separately).
     let mut buf = plaintext.to_vec();
     let pad_len = BLOCK - (buf.len() % BLOCK); // 1..=BLOCK
     for _ in 0..pad_len { buf.push((pad_len - 1) as u8); }
@@ -91,20 +91,20 @@ pub fn seal(k: &DirKeys, seq: u64, ctype: u8, plaintext: &[u8], iv: &[u8; BLOCK]
     out
 }
 
-/// Ověří MAC, dešifruje a odstraní padding. `fragment` = `IV || CT || MAC`.
+/// Verifies the MAC, decrypts and strips padding. `fragment` = `IV || CT || MAC`.
 pub fn open(k: &DirKeys, seq: u64, ctype: u8, fragment: &[u8]) -> Result<Vec<u8>, RecordError> {
     if fragment.len() < BLOCK + MAC_LEN + BLOCK { return Err(RecordError::Short); }
     let (iv_ct, mac) = fragment.split_at(fragment.len() - MAC_LEN);
     if (iv_ct.len() - BLOCK) % BLOCK != 0 || iv_ct.len() < 2 * BLOCK { return Err(RecordError::Short); }
-    // 1) ověř MAC nad IV||CT (konstantní čas)
+    // 1) verify MAC over IV||CT (constant time)
     let exp = mac_etm(&k.mac_key, seq, ctype, iv_ct);
     let diff = mac.iter().zip(exp.iter()).fold(0u8, |a, (x, y)| a | (x ^ y));
     if diff != 0 { return Err(RecordError::BadMac); }
-    // 2) dešifruj
+    // 2) decrypt
     let mut iv = [0u8; BLOCK];
     iv.copy_from_slice(&iv_ct[..BLOCK]);
     let plain = aes_cbc_decrypt(&k.enc_key, &iv, &iv_ct[BLOCK..]);
-    // 3) odstraň padding
+    // 3) strip padding
     let pad_len = *plain.last().ok_or(RecordError::BadPadding)? as usize + 1;
     if pad_len > plain.len() { return Err(RecordError::BadPadding); }
     let (body, pad) = plain.split_at(plain.len() - pad_len);

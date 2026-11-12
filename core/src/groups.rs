@@ -1,13 +1,13 @@
-//! SRP skupiny (RFC 5054, Appendix A). N je bezpečné prvočíslo, g generátor.
+//! SRP groups (RFC 5054, Appendix A). N is a safe prime, g the generator.
 
-/// Jedna SRP skupina: modulus N (hex) a generátor g.
+/// One SRP group: modulus N (hex) and generator g.
 pub struct SrpGroup {
     pub name: &'static str,
     pub n_hex: &'static str,
     pub g: u32,
 }
 
-/// RFC 5054 1024-bit skupina — slouží k ověření proti test vektoru (Appendix B).
+/// RFC 5054 1024-bit group — used to verify against the test vector (Appendix B).
 pub const RFC5054_1024: SrpGroup = SrpGroup {
     name: "RFC5054-1024",
     n_hex: "\
@@ -21,8 +21,9 @@ EEAF0AB9ADB38DD69C33F80AFA8FC5E860726187\
     g: 2,
 };
 
-/// RFC 5054 1536-bit skupina — TUTO používá DataPlug (potvrzeno ze zachyceného
-/// ServerKeyExchange: N začíná 9DEF3CAF…, g=2). Viz research/notes/protocol_findings.md.
+/// RFC 5054 1536-bit group — this is what the DataPlug uses (confirmed from the
+/// captured ServerKeyExchange: N starts with 9DEF3CAF…, g=2).
+/// See research/notes/protocol_findings.md.
 pub const RFC5054_1536: SrpGroup = SrpGroup {
     name: "RFC5054-1536",
     n_hex: "\
