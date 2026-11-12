@@ -43,6 +43,10 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 | `protobuf` — generic wire codec (decode/encode/inspect) | ✅ |
 | `.proto` schema + OBD/data-object layer | ⏳ needs one live capture |
 
+The platform clients are scaffolded (not yet built): `android/` (Kotlin/Compose
++ RFCOMM/SPP transport) and `ios/` (SwiftUI + Core Bluetooth transport), both thin
+shells over `core/` via UniFFI.
+
 ## Build & test (offline, no dongle needed)
 
 ```sh
