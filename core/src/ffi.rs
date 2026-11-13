@@ -78,7 +78,7 @@ impl From<HsError> for DongleError {
     }
 }
 
-/// One live value. `value` is already scaled to `unit` when the signal is known.
+/// One live value, in `unit` when the signal is known.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Reading {
     /// Numeric data-object id (`category << 16 | index`).
@@ -99,9 +99,8 @@ impl From<dongle::DataElement> for Reading {
         Self {
             url: e.url,
             available: e.state != dongle::state::NODATA,
-            value: e.value * sig.map_or(1.0, |s| s.scale),
-            // a scaled value (e.g. rpm) no longer has the raw value's decimals
-            precision: if sig.is_some_and(|s| s.scale != 1.0) { 0 } else { e.precision.unwrap_or(1) },
+            value: e.value,
+            precision: e.precision.unwrap_or(1),
             name: sig.map(|s| s.name.to_string()),
             unit: sig.map(|s| s.unit.to_string()),
         }

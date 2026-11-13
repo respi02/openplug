@@ -251,27 +251,66 @@ pub const APP_SUBSCRIPTIONS: [(u32, u32); 17] = [
     (28, 1000), (19, 10000), (17, 1000), (30, 1000), (34, 1000),
 ];
 
-/// A labelled data object: display name, unit, and the factor the raw value is
-/// multiplied by to get that unit.
+/// A labelled data object: display name and unit (empty when dimensionless/unknown).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Signal {
     pub name: &'static str,
     pub unit: &'static str,
-    pub scale: f32,
 }
 
-/// Looks up the signals whose meaning is confirmed. Unlabelled urls return None.
+/// Looks up a data object's meaning. Covers the objects our test car streams
+/// (see the catalog in live_protocol.md); other urls return None.
 pub fn signal(url: u32) -> Option<Signal> {
-    let (name, unit, scale) = match url {
-        0x0002_0004 => ("odometer", "km", 1.0),
-        0x0002_0005 => ("range", "km", 1.0),
-        0x0004_000e => ("engine speed", "rpm", 100.0),
-        0x0005_0001 => ("battery voltage", "V", 1.0),
-        0x0007_0009 => ("service due", "days", 1.0),
-        0x0007_0012 => ("service due", "km", 1.0),
+    let (name, unit) = match url {
+        0x0002_0000 => ("vehicle speed", "km/h"),
+        0x0002_0001 => ("fuel level", "%"),
+        0x0002_0002 => ("fuel in tank", "l"),
+        0x0002_0004 => ("odometer", "km"),
+        0x0002_0005 => ("range", "km"),
+        0x0002_0006 => ("outside temperature", "°C"),
+        0x0002_0009 => ("fuel consumption, instantaneous", "l/h"),
+        0x0002_001a => ("fuel consumption, average", "l/100 km"),
+        0x0002_0030 => ("oil temperature (dashboard)", "°C"),
+        0x0004_0000 => ("engine speed", "rpm"),
+        0x0004_0001 => ("coolant temperature", "°C"),
+        0x0004_0005 => ("engine load", "%"),
+        0x0004_000c => ("intake air pressure", "kPa"),
+        0x0004_000d => ("intake air temperature", "°C"),
+        0x0004_000e => ("intake air mass flow", "g/s"),
+        0x0004_000f => ("oil temperature", "°C"),
+        0x0004_0026 => ("throttle position, absolute", "%"),
+        0x0004_0027 => ("throttle position, relative", "%"),
+        0x0005_0001 => ("battery voltage", "V"),
+        0x0014_0001 => ("battery voltage (dashboard)", "V"),
+        0x0007_0009 => ("time since last service", "days"),
+        0x0007_0012 => ("distance since last service", "km"),
         _ => return None,
     };
-    Some(Signal { name, unit, scale })
+    Some(Signal { name, unit })
+}
+
+/// Name of a subscribable parameter group (`paramId`), for the ones the app uses.
+pub fn param_name(param_id: u32) -> Option<&'static str> {
+    Some(match param_id {
+        1 => "fuel consumption",
+        4 => "odometer",
+        6 => "range",
+        7 => "fuel level",
+        8 => "service",
+        9 => "service interval status",
+        11 => "dashboard indicators",
+        14 => "engine speed",
+        16 => "coolant temperature",
+        17 => "boost pressure",
+        19 => "oil temperature",
+        20 => "battery voltage",
+        23 => "vehicle speed",
+        28 => "intake air",
+        30 => "throttle position",
+        34 => "catalyst temperature",
+        44 => "AdBlue",
+        _ => return None,
+    })
 }
 
 // ---- the dongle's side (for tests and the fake dongle; mirrors the observed shape) ----

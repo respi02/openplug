@@ -3,8 +3,8 @@
 //!   cargo run --example fake_dongle -- [--listen 127.0.0.1:4455] [--pin 1234]
 //!
 //! Speaks the real stack (TLS-SRP, cipher 0xC01D, length-delimited protobuf) and
-//! answers Subscribe requests with a stream of values. The values and the
-//! paramId → signal mapping are SYNTHETIC — only the wire format is faithful.
+//! answers Subscribe requests with a stream of values. The values are SYNTHETIC;
+//! the wire format and the paramId → object grouping follow the real dongle.
 
 use std::io;
 use std::net::{TcpListener, TcpStream};
@@ -27,16 +27,26 @@ fn random<const N: usize>() -> [u8; N] {
     b
 }
 
-/// Synthetic readings for a subscribed parameter at time `t` seconds.
+/// Synthetic readings for a subscribed parameter at time `t` seconds. The
+/// paramId → object grouping follows what a real dongle sends; the values are made up.
 fn readings(param: u32, t: f32) -> Vec<DataElement> {
     let ok = |url, value, prec| DataElement { url, state: state::OK, value, precision: Some(prec) };
+    let none = |url| DataElement { url, state: state::NODATA, value: 0.0, precision: Some(0) };
+    let wave = |period: f32| (t / period).sin();
     match param {
-        14 => vec![ok(0x0004_000e, 8.0 + (t * 0.7).sin(), 1)],
-        16 => vec![ok(0x0005_0001, 14.2 + 0.2 * (t * 0.3).sin(), 1)],
-        1 => vec![ok(0x0002_0004, 123_456.0, 0)],
-        4 => vec![ok(0x0002_0005, 570.0, 0)],
-        7 => vec![ok(0x0007_0009, 179.0, 0), ok(0x0007_0012, 6100.0, 0)],
-        p => vec![DataElement { url: 0x0010_0000 | p, state: state::NODATA, value: 0.0, precision: Some(0) }],
+        1 => vec![none(0x0002_0009), ok(0x0002_001a, 5.9, 1)],
+        4 => vec![ok(0x0002_0004, 123_456.0, 0)],
+        6 => vec![ok(0x0002_0005, 570.0, 0)],
+        7 => vec![none(0x0002_0001), ok(0x0002_0002, 37.4, 1)],
+        8 => vec![ok(0x0007_0009, 179.0, 0), ok(0x0007_0012, 6100.0, 0)],
+        14 => vec![ok(0x0004_0000, (1500.0 + 700.0 * wave(3.0)).round(), 0)],
+        16 => vec![ok(0x0004_0001, 88.0, 0)],
+        19 => vec![ok(0x0002_0030, 92.0, 0), none(0x0004_000f)],
+        20 => vec![ok(0x0005_0001, 14.2 + 0.2 * wave(5.0), 1), ok(0x0014_0001, 14.2, 1)],
+        23 => vec![ok(0x0002_0000, (50.0 + 20.0 * wave(7.0)).round(), 0)],
+        28 => vec![ok(0x0004_000c, 101.0, 0), ok(0x0004_000d, 21.0, 0), ok(0x0004_000e, 7.0 + wave(2.0), 2)],
+        30 => vec![ok(0x0004_0026, 20.0 + 10.0 * wave(4.0), 1), ok(0x0004_0027, 12.0, 1)],
+        _ => vec![], // groups our test car answers with nothing useful
     }
 }
 
@@ -86,7 +96,10 @@ fn serve(stream: TcpStream, pin: &str) -> Result<(), HsError> {
         for s in subs.iter_mut().filter(|s| s.due <= now) {
             seq += 1;
             let t = start.elapsed().as_secs_f32();
-            sess.send_app(&build_response(seq, s.param, s.txid, &readings(s.param, t)))?;
+            let els = readings(s.param, t);
+            if !els.is_empty() {
+                sess.send_app(&build_response(seq, s.param, s.txid, &els))?;
+            }
             s.due = now + s.rate;
         }
     }

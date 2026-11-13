@@ -93,21 +93,45 @@ wire), so no separate large authentication exchange follows the TLS-SRP handshak
 
 ## Data-object catalog (url → signal)
 
-`url` is `category<<16 | index`. Confirmed against the app UI (engine idling):
+`url` is `category<<16 | index`. The numeric ids are all the dongle sends; their
+meaning comes from a small id → name table the app keeps on the phone (dated 2019),
+cross-checked against the live values from our car (engine idling, then a drive).
+Subscriptions are per **parameter group** (`paramId`); each response carries that
+group's objects.
 
-| url (hex)   | dec     | value seen | meaning (confirmed)        |
-|-------------|---------|-----------:|----------------------------|
-| 0x0002_0004 | 131076  |     odom   | **odometer, km**           |
-| 0x0002_0005 | 131077  |       570  | **range, km**              |
-| 0x0004_000e | 262158  |      6.9   | **engine RPM ÷ 100**       |
-| 0x0005_0001 | 327681  |      14.9  | **battery voltage, V**     |
-| 0x0007_0009 | 458761  |       179  | **service interval, days** |
-| 0x0007_0012 | 458770  |      6100  | **service interval, km**   |
+| paramId | group | url (hex) | object | unit | seen on our car |
+|--:|---|---|---|---|---|
+| 1  | fuel consumption  | 0x0002_0009 | instantaneous consumption | l/h | no data |
+|    |                   | 0x0002_001a | average consumption | l/100 km | 5.9 |
+| 4  | odometer          | 0x0002_0004 | odometer | km | ✓ |
+| 6  | range             | 0x0002_0005 | cruising range | km | 570 |
+| 7  | fuel level        | 0x0002_0001 | fuel level, relative | % | no data |
+|    |                   | 0x0002_0002 | fuel in tank | l | 37.4 |
+| 8  | service           | 0x0007_0009 | time since last service | days | 179 |
+|    |                   | 0x0007_0012 | distance since last service | km | 6100 |
+| 14 | engine speed      | 0x0004_0000 | engine speed | rpm | 768 |
+| 16 | coolant temperature | 0x0004_0001 | coolant temperature | °C | 48–60 |
+| 19 | oil temperature   | 0x0002_0030 | oil temperature (dashboard) | °C | 40–54 |
+|    |                   | 0x0004_000f | oil temperature | °C | no data |
+| 20 | battery voltage   | 0x0005_0001 | battery voltage | V | 14.8–14.9 |
+|    |                   | 0x0014_0001 | battery voltage (dashboard) | V | 14.8–15 |
+| 23 | vehicle speed     | 0x0002_0000 | vehicle speed | km/h | 0 |
+| 28 | intake air        | 0x0004_000c | intake air pressure | kPa | 101–102 |
+|    |                   | 0x0004_000d | intake air temperature | °C | 16–22 |
+|    |                   | 0x0004_000e | intake air mass flow | g/s | 6.5–8.4 |
+| 30 | throttle position | 0x0004_0026 | throttle position, absolute | % | 83 |
+|    |                   | 0x0004_0027 | throttle position, relative | % | 99.6 |
 
-Categories: `0x0002`=vehicle, `0x0004`=engine (live), `0x0005`=electrical,
-`0x0007`=service, `0x0010`/`0x0014`=further. ~30 more objects decode to live floats
-whose semantics aren't yet labelled (the names live in the app's resources, not in
-the protocol; the dongle sends numeric urls only). The dongle also reports the VIN.
+The app also subscribes to groups 9 (service interval status), 11 (dashboard
+indicators / warning lights, category `0x0001`), 17 (boost pressure), 34 (catalyst
+temperature) and 44 (AdBlue); those are not yet decoded here. Group 22 is the VIN
+(category `0x0006`, static). Units are inferred from the value ranges — the table
+itself carries none.
+
+**Correction:** an earlier revision of this note labelled `0x0004_000e` "engine RPM ÷
+100". That was a wrong guess from a value of 6.9 at idle; it is the air mass flow in
+g/s. Engine speed is `0x0004_0000`, in plain rpm. Likewise `0x0007_0009` /
+`0x0007_0012` count days / km *since* the last service, not until the next one.
 
 ## What this proves
 

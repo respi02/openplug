@@ -40,7 +40,7 @@ fn server_cfg() -> ServerConfig<'static> {
 }
 
 #[test]
-fn connect_subscribe_and_read_scaled_readings() {
+fn connect_subscribe_and_read_labelled_readings() {
     let (client_half, server_half) = testpipe::pair();
     let server = thread::spawn(move || {
         let mut sess = server_handshake(server_half, &server_cfg()).expect("server handshake");
@@ -48,7 +48,7 @@ fn connect_subscribe_and_read_scaled_readings() {
             sess.recv_app().expect("subscribe");
         }
         let els = [
-            DataElement { url: 0x0004_000e, state: state::OK, value: 6.9, precision: Some(1) },
+            DataElement { url: 0x0004_0000, state: state::OK, value: 768.0, precision: Some(0) },
             DataElement { url: 0x0010_0001, state: state::NODATA, value: 0.0, precision: Some(0) },
         ];
         sess.send_app(&build_response(1, 14, 1, &els)).unwrap();
@@ -60,7 +60,7 @@ fn connect_subscribe_and_read_scaled_readings() {
     let r = dongle.next_readings().unwrap();
     assert_eq!(r.len(), 2);
     assert_eq!((r[0].name.as_deref(), r[0].unit.as_deref()), (Some("engine speed"), Some("rpm")));
-    assert!((r[0].value - 690.0).abs() < 0.01 && r[0].available && r[0].precision == 0);
+    assert!(r[0].value == 768.0 && r[0].available && r[0].precision == 0);
     assert!(!r[1].available && r[1].name.is_none());
     assert_eq!(dongle.next_readings().err(), Some(DongleError::Closed));
     server.join().unwrap();

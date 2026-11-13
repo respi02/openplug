@@ -26,9 +26,9 @@ code, firmware, keys or trademarks.
 Decoded from live traffic on our own car (see
 [`research/notes/live_protocol.md`](research/notes/live_protocol.md)):
 
-**odometer / mileage · fuel range · battery voltage · engine RPM · coolant &
-intake temperatures · service intervals (km & days) · VIN** — plus ~30 further live
-data objects the dongle streams.
+**odometer · range · fuel in tank · average consumption · vehicle speed · engine
+speed · coolant, oil & intake-air temperatures · battery voltage · throttle position ·
+time & distance since the last service** — the full catalog is in the note above.
 
 The app *subscribes* to a signal at a chosen rate and the dongle streams updates;
 OpenPlug reimplements exactly that read path. (The original app also did phone-side

@@ -86,7 +86,7 @@ fn run<T: Transport>(transport: T, pin: &str) -> Result<(), HsError> {
         for el in rsp.elements {
             let value = match (el.state, signal(el.url)) {
                 (state::NODATA, _) => "no data".to_string(),
-                (_, Some(s)) => format!("{:.*} {}  ({})", el.precision.unwrap_or(1) as usize, el.value * s.scale, s.unit, s.name),
+                (_, Some(s)) => format!("{:.*} {}  ({})", el.precision.unwrap_or(1) as usize, el.value, s.unit, s.name),
                 (_, None) => format!("{}", el.value),
             };
             println!("{:#010x}  {value}", el.url);
