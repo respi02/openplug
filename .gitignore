@@ -24,3 +24,12 @@ research/notes/hardware_protocol.md
 research/notes/legal.md
 research/notes/original_app_service.md
 research/notes/technical_alternatives.md
+
+# Android build products (the native libs and Kotlin bindings come from android/build-core.sh)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/
+android/app/src/main/java/com/openplug/core/
+.kotlin/

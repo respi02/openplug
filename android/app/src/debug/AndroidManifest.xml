@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Debug builds only: lets the app reach `fake_dongle` over `adb reverse`. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>
