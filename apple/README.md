@@ -1,10 +1,9 @@
 # OpenPlug — Apple platforms (iOS / macOS)
 
-> **Status:** the BLE transport and the macOS command-line client work against a real
-> dongle. The SwiftUI app (one target for iOS and macOS) builds and runs on macOS and
-> works end to end against the fake dongle; its sources type-check against the iOS
-> SDK, but **it has not been built for or run on an iPhone yet**, and the app itself
-> has not yet completed a session with a real dongle.
+> **Status: works against a real dongle (2026-11-13).** The SwiftUI app (one target
+> for iOS and macOS) shows the car's live values on an iPhone over BLE; the macOS
+> command-line client does the same from a Mac. The app also runs on macOS and in the
+> iOS simulator against the fake dongle.
 
 ## What is here
 
@@ -32,7 +31,8 @@ open OpenPlug.xcodeproj      # run the "OpenPlug" scheme on My Mac or an iPhone
 
 `build-core.sh` outputs and the generated Xcode project are build products
 (gitignored). Running on an iPhone needs the iOS platform installed in Xcode and a
-signing team selected for the target.
+signing team selected for the target (a free personal team works; the phone then has
+to trust the developer profile under Settings → General → VPN & Device Management).
 
 Command-line client:
 

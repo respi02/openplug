@@ -4,8 +4,8 @@
 > Bluetooth OBD dongle *Škoda DataPlug by TEXA*. Clean-room, interoperability-only.
 
 **🚧 Under active development — contributions welcome.** It already reads live
-values from a real dongle: on Android over Bluetooth Classic, and from a Mac over BLE.
-An iOS/macOS app is in progress. See [Status](#status) and [Contributing](#contributing).
+values from a real dongle on Android (Bluetooth Classic), on iPhone and on macOS (BLE).
+See [Status](#status) and [Contributing](#contributing).
 
 ŠKODA discontinued the Connect LITE app on 1 July 2025. The **DataPlug hardware
 still works** — only the app that drove it is gone. OpenPlug is a clean,
@@ -65,7 +65,7 @@ Everything below has run against a real dongle in a real car (2026-11-13).
 | Protocol core (Rust) | [`core/`](core/) | ✅ TLS-SRP tunnel + read path; offline tests + live |
 | Android app | [`android/`](android/) | ✅ picks a paired dongle, takes the PIN, shows live values (Classic SPP) |
 | BLE transport (Swift) + macOS CLI | [`apple/`](apple/) | ✅ live values over BLE from a Mac |
-| iOS / macOS app (SwiftUI) | [`apple/App/`](apple/App/) | 🚧 runs on macOS against the fake dongle; not yet run on an iPhone or against a real dongle |
+| iOS / macOS app (SwiftUI) | [`apple/App/`](apple/App/) | ✅ live values on an iPhone over BLE; also runs on macOS |
 | Desktop harness + fake dongle | `core/examples/` | ✅ for development without a car |
 
 What OpenPlug does today is **read live values**. Not there yet: trip logging and
@@ -132,11 +132,10 @@ the link — stop it while using OpenPlug.
 
 ## Roadmap
 
-1. iOS app: first run on an iPhone and against a real dongle (the SwiftUI app and
-   the core for iOS are built; see `apple/`).
-2. Trip logging and statistics on the phone (the original app's main feature).
-3. More of the protocol: warning lights, AdBlue, token authentication, a foreground
+1. Trip logging and statistics on the phone (the original app's main feature).
+2. More of the protocol: warning lights, AdBlue, token authentication, a foreground
    service on Android to keep the link alive while driving.
+3. Polish on both apps: reconnecting, background behaviour, distribution.
 4. More cars: the catalog so far reflects one vehicle.
 
 ## Documentation

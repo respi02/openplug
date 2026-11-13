@@ -47,3 +47,4 @@ apple/OpenPlug.xcodeproj/
 
 # written by XcodeGen from apple/project.yml
 apple/App/Info.plist
+apple/.swiftpm/

@@ -32,3 +32,5 @@ targets:
         SWIFT_VERSION: "5.0"
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
+        # the core is built for arm64 only
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64

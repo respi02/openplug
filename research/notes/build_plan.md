@@ -27,14 +27,12 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
 | `core/examples/live`, `fake_dongle` | done |
 | `android/` — Gradle project, SPP transport, Compose UI | done; live values on a phone |
 | `apple/` — Core Bluetooth transport, macOS CLI | done; live values from a Mac |
-| `apple/App/` — SwiftUI app for iOS and macOS | builds; runs on macOS against the fake dongle; not yet on an iPhone or a real dongle |
+| `apple/App/` — SwiftUI app for iOS and macOS | done; live values on an iPhone over BLE |
 
 ## Next
-1. **iOS app.** The core is packed as an XCFramework and the SwiftUI app exists.
-   Remaining: run it on an iPhone and against a real dongle.
-2. **Trip logging.** Phone-side: detect a drive from the value stream, record
+1. **Trip logging.** Phone-side: detect a drive from the value stream, record
    distance, fuel and time, keep statistics. Nothing on the dongle is involved.
-3. **Protocol coverage.**
+2. **Protocol coverage.**
    - Decode the groups the app subscribes to that we do not label yet: 9 (service
      interval status), 11 (warning lights), 17 (boost pressure), 34 (catalyst
      temperature), 44 (AdBlue).
@@ -43,7 +41,7 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
    - Token authentication, so the PIN is not needed on every connect.
    - The raw OBD/UDS request path (`sendPDU`), which the app does not use for live
      values.
-4. **Android polish.** A foreground service to keep the link alive while driving;
+3. **Android polish.** A foreground service to keep the link alive while driving;
    keep the PIN in the Keystore rather than plain preferences.
 
 ## Open questions
