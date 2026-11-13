@@ -15,6 +15,7 @@
 //! Remaining (needs one live capture): the `.proto` schema, transactions,
 //! PDU builder.
 
+pub mod dtp;
 pub mod groups;
 pub mod protobuf;
 pub mod srp;

@@ -158,27 +158,31 @@ pub fn parse_server_hello(body: &[u8]) -> Option<ServerHello> {
 }
 
 /// Builds the ClientHello body (without the handshake header) for TLS-SRP with an
-/// identity. Offers cipher 0xC01D + extensions: encrypt_then_mac,
-/// extended_master_secret, ec_point_formats, supported_groups, SRP(identity) —
-/// matching what the dongle expects.
+/// identity. Byte-for-byte matched to the real DataPlug app's ClientHello captured
+/// over SPP (only the 32-byte random differs): ciphers 0xC01D + the renegotiation
+/// SCSV 0x00FF; extensions supported_groups (secp256r1, secp521r1), ec_point_formats,
+/// encrypt_then_mac, extended_master_secret, session_ticket, SRP(identity).
 pub fn build_client_hello(client_random: &[u8; 32], identity: &[u8]) -> Vec<u8> {
     let mut b = Vec::new();
     b.extend_from_slice(&[0x03, 0x03]);      // client_version TLS 1.2
     b.extend_from_slice(client_random);       // random (32)
     b.push(0);                                // session_id len = 0
-    b.extend_from_slice(&[0x00, 0x02]);       // cipher_suites len = 2
+    b.extend_from_slice(&[0x00, 0x04]);       // cipher_suites len = 4
     b.extend_from_slice(&[0xC0, 0x1D]);       // TLS_SRP_SHA_WITH_AES_128_CBC_SHA
+    b.extend_from_slice(&[0x00, 0xFF]);       // TLS_EMPTY_RENEGOTIATION_INFO_SCSV
     b.push(1); b.push(0);                     // compression: 1 method, null
     // extensions
     let mut ext = Vec::new();
-    // supported_groups: secp256r1(0x0017), secp384r1(0x0018)
-    ext.extend_from_slice(&[0x00, 0x0a, 0x00, 0x06, 0x00, 0x04, 0x00, 0x17, 0x00, 0x18]);
+    // supported_groups: secp256r1(0x0017), secp521r1(0x001a)
+    ext.extend_from_slice(&[0x00, 0x0a, 0x00, 0x06, 0x00, 0x04, 0x00, 0x17, 0x00, 0x1a]);
     // ec_point_formats: uncompressed
     ext.extend_from_slice(&[0x00, 0x0b, 0x00, 0x02, 0x01, 0x00]);
     // encrypt_then_mac (empty)
     ext.extend_from_slice(&[0x00, 0x16, 0x00, 0x00]);
     // extended_master_secret (empty)
     ext.extend_from_slice(&[0x00, 0x17, 0x00, 0x00]);
+    // session_ticket (empty)
+    ext.extend_from_slice(&[0x00, 0x23, 0x00, 0x00]);
     // SRP: type 0x000c, len = 1+identity, srp_I<1..255>
     ext.extend_from_slice(&[0x00, 0x0c]);
     ext.extend_from_slice(&((identity.len() + 1) as u16).to_be_bytes());
