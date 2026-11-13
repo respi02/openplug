@@ -5,7 +5,7 @@
 
 **🚧 Under active development — contributions welcome.** It already reads live
 values from a real dongle: on Android over Bluetooth Classic, and from a Mac over BLE.
-An iOS app is next. See [Status](#status) and [Contributing](#contributing).
+An iOS/macOS app is in progress. See [Status](#status) and [Contributing](#contributing).
 
 ŠKODA discontinued the Connect LITE app on 1 July 2025. The **DataPlug hardware
 still works** — only the app that drove it is gone. OpenPlug is a clean,
@@ -65,7 +65,7 @@ Everything below has run against a real dongle in a real car (2026-11-13).
 | Protocol core (Rust) | [`core/`](core/) | ✅ TLS-SRP tunnel + read path; offline tests + live |
 | Android app | [`android/`](android/) | ✅ picks a paired dongle, takes the PIN, shows live values (Classic SPP) |
 | BLE transport (Swift) + macOS CLI | [`apple/`](apple/) | ✅ live values over BLE from a Mac |
-| iOS app | [`ios/`](ios/) | ⏳ not written; its transport is the one in `apple/` |
+| iOS / macOS app (SwiftUI) | [`apple/App/`](apple/App/) | 🚧 runs on macOS against the fake dongle; not yet run on an iPhone or against a real dongle |
 | Desktop harness + fake dongle | `core/examples/` | ✅ for development without a car |
 
 What OpenPlug does today is **read live values**. Not there yet: trip logging and
@@ -78,7 +78,7 @@ A shared **Rust core** does all protocol work; each platform adds a small Blueto
 transport and a thin native UI, bound through UniFFI.
 
 ```
-Compose UI (Android)              SwiftUI (iOS, planned) / CLI (macOS)
+Compose UI (Android)              SwiftUI (iOS, macOS) / CLI (macOS)
 BluetoothSppTransport             CoreBluetoothTransport
         └──────── ByteTransport (UniFFI) ────────┘
                     openplug-core (Rust)
@@ -118,11 +118,12 @@ OPENPLUG_PIN=1234 cargo run --example live -- --tcp 127.0.0.1:4455   # terminal 
 cd android && ./build-core.sh && ./gradlew assembleDebug
 ```
 
-**macOS over BLE** (details in [`apple/README.md`](apple/README.md)):
+**macOS / iOS over BLE** (details in [`apple/README.md`](apple/README.md)):
 
 ```sh
 cd apple && ./build-core.sh && swift build
-OPENPLUG_PIN=<PIN from the label> .build/debug/openplug-cli
+OPENPLUG_PIN=<PIN from the label> .build/debug/openplug-cli   # command line
+xcodegen generate && open OpenPlug.xcodeproj                   # the SwiftUI app
 ```
 
 The dongle serves one client at a time, and stops advertising over BLE while a phone
@@ -131,7 +132,8 @@ the link — stop it while using OpenPlug.
 
 ## Roadmap
 
-1. iOS app: the core built for iOS + a SwiftUI shell over the existing BLE transport.
+1. iOS app: first run on an iPhone and against a real dongle (the SwiftUI app and
+   the core for iOS are built; see `apple/`).
 2. Trip logging and statistics on the phone (the original app's main feature).
 3. More of the protocol: warning lights, AdBlue, token authentication, a foreground
    service on Android to keep the link alive while driving.

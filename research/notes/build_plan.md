@@ -27,11 +27,11 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
 | `core/examples/live`, `fake_dongle` | done |
 | `android/` — Gradle project, SPP transport, Compose UI | done; live values on a phone |
 | `apple/` — Core Bluetooth transport, macOS CLI | done; live values from a Mac |
-| `ios/` — app | not started |
+| `apple/App/` — SwiftUI app for iOS and macOS | builds; runs on macOS against the fake dongle; not yet on an iPhone or a real dongle |
 
 ## Next
-1. **iOS app.** Build the core for the iOS targets (XCFramework), add a SwiftUI shell
-   over `OpenPlugBLE`. The transport needs no changes.
+1. **iOS app.** The core is packed as an XCFramework and the SwiftUI app exists.
+   Remaining: run it on an iPhone and against a real dongle.
 2. **Trip logging.** Phone-side: detect a drive from the value stream, record
    distance, fuel and time, keep statistics. Nothing on the dongle is involved.
 3. **Protocol coverage.**

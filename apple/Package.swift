@@ -1,7 +1,7 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// The Rust core is linked as a static library; run ./build-core.sh first.
+// The Rust core is linked from OpenPlugCoreFFI.xcframework; run ./build-core.sh first.
 let package = Package(
     name: "OpenPlug",
     platforms: [.macOS(.v13), .iOS(.v16)],
@@ -10,18 +10,11 @@ let package = Package(
         .executable(name: "openplug-cli", targets: ["openplug-cli"]),
     ],
     targets: [
-        // C header + module map of the UniFFI scaffolding (generated).
-        .target(name: "OpenPlugCoreFFI"),
+        // The Rust core as static libraries, with the UniFFI C header (generated).
+        .binaryTarget(name: "OpenPlugCoreFFI", path: "OpenPlugCoreFFI.xcframework"),
         // Swift bindings to the Rust core (generated).
-        .target(
-            name: "OpenPlugCore",
-            dependencies: ["OpenPlugCoreFFI"],
-            linkerSettings: [
-                .unsafeFlags(["-L", "lib"]),
-                .linkedLibrary("openplug_core"),
-            ]
-        ),
-        // The Core Bluetooth transport, shared by macOS and iOS.
+        .target(name: "OpenPlugCore", dependencies: ["OpenPlugCoreFFI"]),
+        // The Core Bluetooth transport, shared by macOS and iOS. Re-exports OpenPlugCore.
         .target(name: "OpenPlugBLE", dependencies: ["OpenPlugCore"]),
         .executableTarget(name: "openplug-cli", dependencies: ["OpenPlugBLE"]),
     ]

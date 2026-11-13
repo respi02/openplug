@@ -1,6 +1,6 @@
 import CoreBluetooth
 import Foundation
-import OpenPlugCore
+@_exported import OpenPlugCore
 
 /// The dongle's BLE transport (see research/notes/ble_transport.md).
 ///

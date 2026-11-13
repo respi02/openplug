@@ -34,8 +34,16 @@ android/app/src/main/jniLibs/
 android/app/src/main/java/com/openplug/core/
 .kotlin/
 
-# Apple build products (the static lib and Swift bindings come from apple/build-core.sh)
+# Apple build products (the XCFramework and Swift bindings come from apple/build-core.sh;
+# the Xcode project is generated from apple/project.yml by XcodeGen)
 apple/.build/
-apple/lib/
+apple/build/
+apple/OpenPlugCoreFFI.xcframework/
 apple/Sources/OpenPlugCore/OpenPlugCore.swift
-apple/Sources/OpenPlugCoreFFI/include/
+apple/OpenPlug.xcodeproj/
+
+# macOS
+.DS_Store
+
+# written by XcodeGen from apple/project.yml
+apple/App/Info.plist
