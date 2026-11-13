@@ -18,9 +18,10 @@
 //! # }
 //! ```
 //!
-//! On Bluetooth Classic (RFCOMM/SPP) the TLS records travel directly on the serial
-//! channel, so pass the raw transport. On BLE wrap it in
-//! [`crate::dtp::DtpTransport`] first.
+//! Both of the dongle's transports carry bare TLS records, so pass the raw byte
+//! channel: the RFCOMM/SPP socket, or on BLE a transport that writes each chunk to
+//! the write characteristic and reads it back after the `0xff` notification (see
+//! research/notes/ble_transport.md).
 
 use crate::dongle::{self, Client, Deframer, Response};
 use crate::groups::RFC5054_1536;

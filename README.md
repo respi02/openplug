@@ -4,8 +4,8 @@
 > Bluetooth OBD dongle *Škoda DataPlug by TEXA*. Clean-room, interoperability-only.
 
 **🚧 Under active development — contributions welcome.** The protocol is reverse-
-engineered and the security layer is built; the apps are still being assembled. Help
-is especially wanted on the **iOS/BLE** side (see below). How to contribute:
+engineered and both transports work against a real dongle: the Android app reads live
+values over Bluetooth Classic, and the same core runs over BLE. See
 [Contributing](#contributing).
 
 ŠKODA discontinued the Connect LITE app on 1 July 2025. The **DataPlug hardware
@@ -53,7 +53,9 @@ Bluetooth  →  TLS-SRP tunnel        →  protobuf          →  OBD / UDS
 
 No server is involved — everything is local between phone and dongle. The dongle is
 dual-mode Bluetooth (FCC ID T8RDP15/T8RDP22): Android uses the Classic/SPP side, iOS
-uses the BLE side — so no MFi is required.
+uses the BLE side — so no MFi is required. Both carry the same bare TLS records; on
+BLE each record is written to one characteristic and read back from it after a
+one-byte notification (see [`ble_transport.md`](research/notes/ble_transport.md)).
 
 ## Architecture
 
@@ -69,14 +71,15 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 | `tls_handshake` — master secret, EMS (RFC 7627), ServerKeyExchange parse | ✅ parses real dongle bytes |
 | `tls_client` — TLS-SRP handshake orchestration | ✅ full loopback test |
 | `protobuf` — generic wire codec (decode/encode/inspect) | ✅ |
-| `dtp` — BLE link framing (`len ‖ 0x44 0x5e ‖ payload`; not used on SPP) | ✅ reversed from vendor libs |
+| `dtp` — a framing found in the vendor library (`len ‖ 0x44 0x5e ‖ payload`) | ✅ implemented, but not used on the wire by either transport |
 | `dongle` — app protocol: Subscribe request + DataElement decode | ✅ built from [`live_protocol.md`](research/notes/live_protocol.md) |
 | `link` — read API: connect → authenticate → subscribe → value stream | ✅ verified live against a real dongle (Android/SPP, 2026-11-13) |
 | `ffi` — UniFFI facade for Kotlin/Swift (feature `ffi`) | ✅ tested from Rust; Kotlin + Swift bindings generate |
 
-The platform clients are scaffolded (not yet built): `android/` (Kotlin/Compose
-+ RFCOMM/SPP transport) and `ios/` (SwiftUI + Core Bluetooth transport), both thin
-shells over `core/` via UniFFI.
+Platform clients, both thin shells over `core/` via UniFFI: `android/`
+(Kotlin/Compose + RFCOMM/SPP transport) builds and works against a real dongle;
+`ios/` (SwiftUI + Core Bluetooth transport) is not written yet, but its transport is
+now fully understood.
 
 ## Status & roadmap
 
@@ -85,7 +88,7 @@ shells over `core/` via UniFFI.
 - The full security layer of the tunnel: SRP-6a → TLS 1.2 TLS-SRP handshake
   (Encrypt-then-MAC + Extended Master Secret) → AES-128-CBC/HMAC-SHA1 records,
   anchored to real captured handshake bytes from our own dongle. No C dependency.
-- A generic protobuf codec and the DTP link framing.
+- A generic protobuf codec.
 - The application protocol, implemented in `core/` from the decoded spec: the
   `Subscribe{paramId, rate}` request and the `DataElement{url, value}` response
   decode (byte-scan that survives the dongle's "secured" block).
@@ -95,15 +98,9 @@ shells over `core/` via UniFFI.
 1. ~~First live run against a real dongle~~ — done on Android/SPP (2026-11-13): the
    app authenticates with the label PIN and shows the car's live values.
 2. Android transport (RFCOMM/SPP) + a thin Compose UI — the fast path to end-to-end.
-3. iOS transport (BLE) — blocked on the session-open step (below).
-
-**iOS help wanted.** On iOS the dongle uses BLE, and it's confirmed to advertise a
-write/notify GATT pair — but it ignores our (correctly framed, byte-exact)
-ClientHello, so there's a BLE **session-open** step the retired iOS app does that we
-can't observe without an iOS reference. If you have that app on your Apple ID and can
-do static analysis of its build, see
-[`research/notes/ios_contribution_request.md`](research/notes/ios_contribution_request.md)
-— the one thing we need is the connect→first-TLS-byte sequence.
+3. ~~Work out the BLE transport~~ — done (2026-11-13): full session and live values
+   over BLE from a Mac, with the unmodified core.
+4. iOS/macOS app: a Core Bluetooth transport + SwiftUI shell over the same core.
 
 ## Build & test (offline, no dongle needed)
 
@@ -135,17 +132,15 @@ In [`research/notes/`](research/notes/):
 - [`connect_lite_overview.md`](research/notes/connect_lite_overview.md) · [`dataplug_hardware.md`](research/notes/dataplug_hardware.md) — background on the app and the hardware.
 - [`protocol_spec.md`](research/notes/protocol_spec.md) · [`protocol_findings.md`](research/notes/protocol_findings.md) — the phone↔dongle protocol.
 - [`live_protocol.md`](research/notes/live_protocol.md) — the decrypted application protocol and data-object catalog.
-- [`ble_transport.md`](research/notes/ble_transport.md) — the iOS/BLE findings and the open session-open question.
+- [`ble_transport.md`](research/notes/ble_transport.md) — how the dongle's BLE transport works.
 - [`tech_stack.md`](research/notes/tech_stack.md) · [`build_plan.md`](research/notes/build_plan.md) — architecture and build plan.
 - [`code_licensing.md`](research/notes/code_licensing.md) — dependency licenses and the clean-room rationale.
-- [`ios_contribution_request.md`](research/notes/ios_contribution_request.md) — how an iOS-side collaborator can help.
 
 ## Contributing
 
-Contributions are welcome — code, testing against real hardware, documentation, and
-most of all the **iOS reference** that unblocks the BLE transport (see *iOS help
-wanted* above). Good first areas: running the harness against real
-hardware, the Android SPP transport + UI, and labelling more data objects.
+Contributions are welcome — code, testing against real hardware (other cars and
+dongle revisions especially), and documentation. Good first areas: the iOS/macOS Core
+Bluetooth transport and app, labelling more data objects, and trip logging.
 
 To keep the project clean-room and interoperability-only, please:
 

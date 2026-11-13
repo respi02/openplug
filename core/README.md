@@ -11,7 +11,7 @@ protocol). Bindings for Android/iOS come from the UniFFI facade in `src/ffi.rs`.
 - ✅ `tls_handshake` — master secret, EMS, ServerKeyExchange parser (real dongle bytes), ClientHello/ClientKeyExchange, Finished
 - ✅ `tls_client` — TLS-SRP handshake orchestration (client + server, full loopback)
 - ✅ `protobuf` — generic wire codec (decode/encode/inspect)
-- ✅ `dtp` — BLE link framing (not used on SPP)
+- ✅ `dtp` — a framing found in the vendor library; not used on the wire by either transport
 - ✅ `dongle` — app protocol: Subscribe request, DataElement decode, signal catalog
 - ✅ `link` — read API: connect → authenticate → subscribe → value stream
 - ✅ `ffi` — UniFFI facade for Kotlin/Swift (`--features ffi`; bindings via `--features bindgen --bin uniffi-bindgen`)
@@ -21,7 +21,7 @@ protocol). Bindings for Android/iOS come from the UniFFI facade in `src/ffi.rs`.
 ## Examples
 - `live` — desktop harness: `--serial DEVICE` (paired dongle) or `--tcp HOST:PORT`
 - `fake_dongle` — stand-in dongle on TCP with synthetic values
-- `clienthello` — emits the byte-exact ClientHello record (for BLE probing)
+- `clienthello` — emits the byte-exact ClientHello record (used while probing BLE)
 
 ## Test (offline, no dongle)
 ```sh

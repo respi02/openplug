@@ -1,5 +1,33 @@
 # OpenPlug — BLE transport, CONFIRMED on live hardware (2026-11-13)
 
+> **SOLVED (2026-11-13, afternoon).** The BLE transport carries the **same bare TLS
+> records as SPP** — no DTP framing, no bonding, no session-open write. What we were
+> missing is how the reply is delivered:
+>
+> 1. **Write** each TLS record, whole, to the write characteristic `478a86f3-…`
+>    (write-with-response; records longer than the ATT MTU go as a long write).
+> 2. For every record it has queued for us, the dongle sends a **one-byte `0xff`
+>    notification** on `2efb2dd4-…` — a doorbell, not data.
+> 3. **Read** the write characteristic `478a86f3-…` (a long read) to fetch one queued
+>    record per read; an empty read means nothing is pending.
+>
+> Verified from macOS (CoreBluetooth via `bleak`, MTU 185): ClientHello → three
+> doorbells → reads return ServerHello (100 B), ServerKeyExchange (433 B),
+> ServerHelloDone (9 B); the full TLS-SRP handshake then completes with the label PIN
+> and the dongle acknowledges all 17 subscriptions, driven by the unmodified Rust core
+> through a small TCP↔BLE bridge. The `ff ff ff` we first read as a NAK was exactly
+> these three doorbells (their timing matches the three server records on SPP), and
+> the "silence" after a DTP-framed write was the TLS layer discarding a malformed
+> record.
+>
+> Two details for implementers: (a) the read side is a **byte stream, not a record
+> stream** — a 521-byte record arrived as a 512-byte read (the GATT attribute limit)
+> plus a 9-byte read, each with its own doorbell, so feed reads into a TLS record
+> reassembler; (b) live values were confirmed too: 25 s of streaming (95 readings,
+> record sizes identical to SPP) with no MAC errors.
+>
+> **The sections below are the earlier, now superseded, investigation.**
+
 Previously the iOS/BLE path was **unverified** (our HCI capture was 100% Bluetooth
 Classic SPP, 0 BLE frames). It is now confirmed by a live GATT enumeration and an
 active probe of a powered dongle, done from macOS CoreBluetooth (Python `bleak`).

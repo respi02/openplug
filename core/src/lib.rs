@@ -12,7 +12,7 @@
 //! [`groups`] (dongle group = RFC5054-1536, g=2, identity "PA"),
 //! [`tls_prf`], [`tls_record`] (Encrypt-then-MAC), [`tls_handshake`],
 //! [`tls_client`] (full TLS-SRP handshake), [`protobuf`] (generic codec),
-//! [`dtp`] (link framing) and [`dongle`] (Subscribe request + DataElement decode,
+//! [`dtp`] (a vendor framing, unused on the wire) and [`dongle`] (Subscribe request + DataElement decode,
 //! from the decoded live protocol in research/notes/live_protocol.md) and [`link`]
 //! (the read API: connect → authenticate → subscribe → stream of values).
 //! With the `ffi` feature, [`ffi`] exposes that read API to Kotlin/Swift via UniFFI.

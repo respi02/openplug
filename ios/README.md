@@ -1,36 +1,38 @@
-# OpenPlug — iOS app (scaffold, BLE transport UNVERIFIED)
+# OpenPlug — iOS app (not written yet; transport understood)
 
-> **Status: skeleton + open question.** The dongle is dual-mode Bluetooth and
-> **not MFi**, so iOS almost certainly uses **Core Bluetooth (BLE)**. But our
-> packet capture was 100% Bluetooth Classic SPP — we have **zero bytes of the BLE
-> side**. The BLE transport below cannot be written correctly until the BLE path
-> is observed.
+> **Status: no code yet.** The dongle's BLE transport is now fully worked out and
+> verified from macOS with the unmodified Rust core, so the iOS (and macOS) client is
+> ordinary Core Bluetooth work. The dongle is not MFi and needs no bonding.
 
-## What is unverified
-BLE is GATT (characteristic write + notify), not a byte stream like RFCOMM/SPP:
-- TLS records (~hundreds of bytes) must be segmented across writes and reassembled
-  from notifications, bounded by the ATT MTU (default 20 B, negotiable).
-- Unknown whether the dongle's BLE characteristic is a transparent serial pipe
-  (then our core works unchanged) or adds its own framing (then we must reverse it).
-- Unknown: service UUID, write/notify characteristic UUIDs, with/without response,
-  bonding requirements.
+## The BLE transport
 
-## How to resolve it (does NOT need the retired iOS app)
-1. **BLE scan + GATT enumeration** of the powered dongle (nRF Connect / LightBlue,
-   or macOS) → service + characteristic UUIDs and properties.
-2. **Active probe from any BLE central (Mac/Android) using our own core:** write a
-   TLS-SRP ClientHello to the write characteristic, listen for notifications. A
-   sensible ServerHello (`16 03 03 … 02 …`) confirms the same tunnel and reveals
-   the framing.
-3. Fallback: an iOS HCI capture (PacketLogger over USB) with the original app.
+Details and the investigation: [`research/notes/ble_transport.md`](../research/notes/ble_transport.md).
 
-## Architecture (once confirmed)
+| | UUID |
+|---|---|
+| service | `732db477-bfd6-4694-9378-86c246f35def` |
+| data characteristic (write + read) | `478a86f3-e47c-4618-9b15-3c7c92cc8184` |
+| doorbell characteristic (notify) | `2efb2dd4-cdc3-11e6-9d9d-cec0c932ce01` |
+
+The dongle advertises as `DP_2_1_<serial>`.
+
+- **Send:** write each TLS record whole to the data characteristic, with response
+  (Core Bluetooth turns writes longer than the MTU into long writes).
+- **Receive:** every one-byte `0xff` notification on the doorbell means one chunk is
+  waiting; read the data characteristic to fetch it. Chunks are at most 512 bytes and
+  do not respect record boundaries, so treat the reads as a byte stream.
+
+## Architecture
+
 ```
 SwiftUI
    │
 CoreBluetoothTransport  ──implements──►  ByteTransport (UniFFI, core/src/ffi.rs)
    │
-CBPeripheral write/notify characteristic   openplug-core (TLS-SRP + protocol)
+CBPeripheral: write / notify / read        openplug-core (TLS-SRP + protocol)
 ```
-The shared Rust `core/` is transport-agnostic; only this thin BLE shim (notification
-reassembly + MTU segmentation + any dongle-specific framing) depends on the findings.
+
+`ByteTransport.recv` blocks, while Core Bluetooth is callback-driven: the transport
+queues the bytes of each completed read and `recv` waits on that queue from the
+core's background thread. The Swift bindings are generated from the core
+(`OpenPlugCore` module, see `core/uniffi.toml`).
