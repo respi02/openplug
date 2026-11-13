@@ -2,7 +2,7 @@
 name = "openplug-core"
 version = "0.1.0"
 edition = "2021"
-description = "OpenPlug — sdílené jádro (transport, TLS-SRP, protokol DataPlugu). Nezávislé na platformě."
+description = "OpenPlug shared core: transport, TLS-SRP tunnel and the DataPlug protocol. Platform-independent."
 license = "MIT"
 
 [dependencies]
@@ -13,6 +13,7 @@ thiserror = "1.0.69"
 aes = "0.8.4"
 hmac = "0.12.1"
 sha2 = "0.10.9"
+getrandom = "0.3"
 
 [dev-dependencies]
 hex = "0.4.3"

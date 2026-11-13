@@ -1,6 +1,8 @@
 //! TLS 1.2 TLS-SRP handshake orchestration (RFC 5246 + 5054 + 7366 EtM + 7627 EMS).
 //! Client (= OpenPlug) and server (= for the loopback test / protocol documentation).
-//! Random values are injected for deterministic tests; production supplies a CSPRNG.
+//! The handshake randoms are injected via [`ClientConfig`] / [`ServerConfig`] so tests
+//! are deterministic; production builds them with [`ClientConfig::random`] (OS CSPRNG).
+//! Per-record CBC IVs of an established [`Session`] always come from the OS CSPRNG.
 
 use num_bigint::BigUint;
 
@@ -21,6 +23,8 @@ const HT_FINISHED: u8 = 20;
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum HsError {
     #[error("I/O")] Io,
+    #[error("connection closed by peer")] Closed,
+    #[error("OS random number generator failed")] Rng,
     #[error("unexpected message / format")] Protocol,
     #[error("server did not select cipher 0xC01D")] BadCipher,
     #[error("server Finished mismatch")] BadFinished,
@@ -34,7 +38,7 @@ fn read_exact<T: Transport>(t: &mut T, n: usize) -> Result<Vec<u8>, HsError> {
     let mut filled = 0;
     while filled < n {
         let got = t.recv(&mut buf[filled..]).map_err(|_| HsError::Io)?;
-        if got == 0 { std::thread::yield_now(); continue; }
+        if got == 0 { return Err(HsError::Closed); } // Transport contract: 0 = closed
         filled += got;
     }
     Ok(buf)
@@ -61,15 +65,19 @@ pub struct Session<T: Transport> {
     read_keys: DirKeys,
     write_seq: u64,
     read_seq: u64,
-    iv_ctr: u8,
+}
+
+/// Fresh unpredictable CBC IV (TLS 1.2 explicit IV must not be predictable).
+fn random_iv() -> Result<[u8; 16], HsError> {
+    let mut iv = [0u8; 16];
+    getrandom::fill(&mut iv).map_err(|_| HsError::Rng)?;
+    Ok(iv)
 }
 
 impl<T: Transport> Session<T> {
-    fn next_iv(&mut self) -> [u8; 16] { self.iv_ctr = self.iv_ctr.wrapping_add(1); [self.iv_ctr; 16] }
-
     /// Sends application data (one encrypted record).
     pub fn send_app(&mut self, data: &[u8]) -> Result<(), HsError> {
-        let iv = self.next_iv();
+        let iv = random_iv()?;
         let rec = seal(&self.write_keys, self.write_seq, APPLICATION_DATA, data, &iv);
         self.write_seq += 1;
         write_record(&mut self.t, APPLICATION_DATA, &rec)
@@ -93,6 +101,26 @@ pub struct ClientConfig<'a> {
     pub client_random: [u8; 32],
     pub a: BigUint,       // client's SRP ephemeral private
     pub finished_iv: [u8; 16],
+}
+
+impl<'a> ClientConfig<'a> {
+    /// Production config: client random, SRP ephemeral `a` (256 bits) and the
+    /// Finished IV all drawn from the OS CSPRNG.
+    pub fn random(group: &'a SrpGroup, identity: &'a [u8], password: &'a [u8]) -> Result<Self, HsError> {
+        let mut client_random = [0u8; 32];
+        let mut a = [0u8; 32];
+        getrandom::fill(&mut client_random).map_err(|_| HsError::Rng)?;
+        getrandom::fill(&mut a).map_err(|_| HsError::Rng)?;
+        a[0] |= 0x80; // keep the full 256-bit size (and never zero)
+        Ok(Self {
+            group,
+            identity,
+            password,
+            client_random,
+            a: BigUint::from_bytes_be(&a),
+            finished_iv: random_iv()?,
+        })
+    }
 }
 
 /// Runs the client handshake over `t` and returns an established `Session`.
@@ -174,7 +202,7 @@ pub fn client_handshake<T: Transport>(mut t: T, cfg: &ClientConfig) -> Result<Se
     let exp = hs::finished_verify_data(&master, b"server finished", &tr.hash());
     if vd != exp { return Err(HsError::BadFinished); }
 
-    Ok(Session { t, write_keys: client_keys, read_keys: server_keys, write_seq: 1, read_seq: 1, iv_ctr: 0x40 })
+    Ok(Session { t, write_keys: client_keys, read_keys: server_keys, write_seq: 1, read_seq: 1 })
 }
 
 /// Cuts one complete handshake message out of a buffer: (type, body, consumed).
@@ -259,5 +287,5 @@ pub fn server_handshake<T: Transport>(mut t: T, cfg: &ServerConfig) -> Result<Se
     let sealed = seal(&server_keys, 0, HANDSHAKE, &sfin, &cfg.finished_iv);
     write_record(&mut t, HANDSHAKE, &sealed)?;
 
-    Ok(Session { t, write_keys: server_keys, read_keys: client_keys, write_seq: 1, read_seq: 1, iv_ctr: 0x80 })
+    Ok(Session { t, write_keys: server_keys, read_keys: client_keys, write_seq: 1, read_seq: 1 })
 }
