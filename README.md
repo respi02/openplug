@@ -12,6 +12,13 @@ the dongle you own stays usable.
 reimplements an *interface* for interoperability with hardware the user owns; it
 contains no vendor code, firmware, keys or trademarks.
 
+## Background
+
+- [**What ŠKODA Connect LITE was**](research/notes/connect_lite_overview.md) — the
+  retired app this project replaces, and its features.
+- [**What the DataPlug by TEXA is**](research/notes/dataplug_hardware.md) — the
+  Bluetooth-to-CAN/OBD dongle it talked to.
+
 ## How the dongle works (reverse-engineered from our own device + traffic)
 
 ```
