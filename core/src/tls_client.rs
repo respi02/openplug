@@ -173,7 +173,10 @@ pub fn client_handshake<T: Transport>(mut t: T, cfg: &ClientConfig) -> Result<Se
     let mut hbuf: Vec<u8> = Vec::new();
     let mut server_hello: Option<hs::ServerHello> = None;
     let mut srp_params: Option<hs::ServerSrpParams> = None;
-    loop {
+    // The dongle sends ServerHello, ServerKeyExchange and ServerHelloDone as three
+    // separate records; read until ServerHelloDone itself has been consumed.
+    let mut hello_done = false;
+    while !hello_done {
         while let Some((htype, body, consumed)) = take_handshake(&hbuf) {
             let raw = hbuf[..consumed].to_vec();
             tr.add(&raw);
@@ -186,12 +189,13 @@ pub fn client_handshake<T: Transport>(mut t: T, cfg: &ClientConfig) -> Result<Se
                 HT_SERVER_KEY_EXCHANGE => {
                     srp_params = Some(hs::parse_server_key_exchange(body).ok_or(HsError::Protocol)?);
                 }
-                HT_SERVER_HELLO_DONE => { hbuf.drain(..consumed); break; }
+                HT_SERVER_HELLO_DONE => hello_done = true,
                 _ => {}
             }
             hbuf.drain(..consumed);
+            if hello_done { break; }
         }
-        if server_hello.is_some() && srp_params.is_some() && hbuf.is_empty() { break; }
+        if hello_done { break; }
         let payload = read_plain(&mut t, HANDSHAKE)?;
         hbuf.extend_from_slice(&payload);
     }
@@ -271,7 +275,7 @@ pub fn server_handshake<T: Transport>(mut t: T, cfg: &ServerConfig) -> Result<Se
     tr.add(&ch_payload[..consumed]);
     let (client_random, identity) = hs::parse_client_hello(ch_body).ok_or(HsError::Protocol)?;
 
-    // 2) verifier, B; SH + SKE + SHD (one record)
+    // 2) verifier, B; SH + SKE + SHD
     let x = srp.x(&cfg.salt, &identity, cfg.password);
     let v = srp.verifier(&x);
     let b_pub = srp.server_public(&v, &cfg.b);
@@ -281,9 +285,8 @@ pub fn server_handshake<T: Transport>(mut t: T, cfg: &ServerConfig) -> Result<Se
         &hs::build_server_key_exchange(&srp.n, &srp.g, &cfg.salt, &b_pub));
     let shd = hs::hs_wrap(HT_SERVER_HELLO_DONE, &[]);
     for m in [&sh, &ske, &shd] { tr.add(m); }
-    let mut flight = Vec::new();
-    flight.extend_from_slice(&sh); flight.extend_from_slice(&ske); flight.extend_from_slice(&shd);
-    write_record(&mut t, HANDSHAKE, &flight)?;
+    // One record per message, as the real dongle does.
+    for m in [&sh, &ske, &shd] { write_record(&mut t, HANDSHAKE, m)?; }
 
     // 3) ClientKeyExchange → A
     let (ct2, cke_payload) = read_record(&mut t)?;

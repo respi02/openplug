@@ -15,7 +15,8 @@ protocol). Bindings for Android/iOS come from the UniFFI facade in `src/ffi.rs`.
 - ✅ `dongle` — app protocol: Subscribe request, DataElement decode, signal catalog
 - ✅ `link` — read API: connect → authenticate → subscribe → value stream
 - ✅ `ffi` — UniFFI facade for Kotlin/Swift (`--features ffi`; bindings via `--features bindgen --bin uniffi-bindgen`)
-- ⏳ first run against real hardware; transactions beyond Subscribe; OBD/UDS PDU
+- ✅ verified live against a real dongle through the Android app (SPP)
+- ⏳ transactions beyond Subscribe; OBD/UDS PDU
 
 ## Examples
 - `live` — desktop harness: `--serial DEVICE` (paired dongle) or `--tcp HOST:PORT`

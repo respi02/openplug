@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -152,7 +153,11 @@ private fun Setup(state: LinkState, onConnect: (DongleTransport, String) -> Unit
         singleLine = true,
         enabled = !busy,
         visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        // label PINs are alphanumeric (ours is 8 capital letters)
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.Characters,
+            keyboardType = KeyboardType.Password,
+        ),
         modifier = Modifier.fillMaxWidth(),
     )
     Spacer(Modifier.height(12.dp))

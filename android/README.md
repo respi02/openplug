@@ -1,6 +1,6 @@
 # OpenPlug — Android app
 
-> **Status: builds and installs; not yet run against a real dongle.** A thin Compose
+> **Status: works against a real dongle (first live run 2026-11-13).** A thin Compose
 > shell over the shared Rust `core/`: pick a paired dongle, enter the label PIN, see
 > the live values. Debug builds also offer a TCP "fake dongle" target for development.
 
@@ -53,8 +53,12 @@ Then in a debug build choose **Fake dongle (TCP 127.0.0.1:4455)**, PIN `1234`.
 it needs neither scanning nor location. Debug builds add `INTERNET` for the fake
 dongle. Pair the dongle (`DP_2_1_…`) in the system Bluetooth settings first.
 
+## Notes from the first live run
+- The label PIN is alphanumeric (ours: 8 capital letters).
+- The dongle serves one client. If the original app is installed it reconnects on its
+  own and takes the link over — stop or disable it while using OpenPlug.
+
 ## TODO
-- First run against real hardware.
 - Foreground service to keep the connection alive while driving.
 - Trip logging, statistics, and labels for more data objects.
 - The PIN is remembered in app-private preferences in plain text; move it to the

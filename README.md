@@ -71,7 +71,7 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 | `protobuf` — generic wire codec (decode/encode/inspect) | ✅ |
 | `dtp` — BLE link framing (`len ‖ 0x44 0x5e ‖ payload`; not used on SPP) | ✅ reversed from vendor libs |
 | `dongle` — app protocol: Subscribe request + DataElement decode | ✅ built from [`live_protocol.md`](research/notes/live_protocol.md) |
-| `link` — read API: connect → authenticate → subscribe → value stream | ✅ end-to-end vs the fake dongle; ⏳ not yet run against real hardware |
+| `link` — read API: connect → authenticate → subscribe → value stream | ✅ verified live against a real dongle (Android/SPP, 2026-11-13) |
 | `ffi` — UniFFI facade for Kotlin/Swift (feature `ffi`) | ✅ tested from Rust; Kotlin + Swift bindings generate |
 
 The platform clients are scaffolded (not yet built): `android/` (Kotlin/Compose
@@ -92,8 +92,8 @@ shells over `core/` via UniFFI.
 
 **Next**
 
-1. First live run of the core against a real dongle, using the desktop harness
-   (below) — the read API and harness exist but have only met the fake dongle so far.
+1. ~~First live run against a real dongle~~ — done on Android/SPP (2026-11-13): the
+   app authenticates with the label PIN and shows the car's live values.
 2. Android transport (RFCOMM/SPP) + a thin Compose UI — the fast path to end-to-end.
 3. iOS transport (BLE) — blocked on the session-open step (below).
 
