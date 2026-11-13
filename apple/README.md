@@ -4,6 +4,10 @@
 > for iOS and macOS) shows the car's live values on an iPhone over BLE; the macOS
 > command-line client does the same from a Mac. The app also runs on macOS and in the
 > iOS simulator against the fake dongle.
+>
+> Newer than that verification: the **trip log**, **automatic reconnection** and the
+> Bluetooth background mode. These were exercised on macOS and in the simulator
+> against the fake dongle only — not yet on an iPhone or a real drive.
 
 ## What is here
 
@@ -11,7 +15,7 @@
 |---|---|
 | `Sources/OpenPlugBLE/` | the Core Bluetooth transport, shared by iOS and macOS |
 | `Sources/openplug-cli/` | macOS command-line client |
-| `App/` | the SwiftUI app: PIN entry (kept in the Keychain), connect, live values |
+| `App/` | the SwiftUI app: PIN entry (kept in the Keychain), live values, trips and refuels |
 | `project.yml` | XcodeGen spec for the app's Xcode project |
 | `build-core.sh` | builds the Rust core into `OpenPlugCoreFFI.xcframework` + Swift bindings |
 

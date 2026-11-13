@@ -30,8 +30,10 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
 | `apple/App/` — SwiftUI app for iOS and macOS | done; live values on an iPhone over BLE |
 
 ## Next
-1. **Trip logging.** Phone-side: detect a drive from the value stream, record
-   distance, fuel and time, keep statistics. Nothing on the dongle is involved.
+1. **Trip logging** — implemented in `core/src/journal.rs` and both apps, with
+   automatic reconnection and background recording; tested against the fake dongle.
+   Remaining: prove it on real drives (see `original_app_features.md` for what the
+   original app did beyond this).
 2. **Protocol coverage.**
    - Decode the groups the app subscribes to that we do not label yet: 9 (service
      interval status), 11 (warning lights), 17 (boost pressure), 34 (catalyst
@@ -41,8 +43,7 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
    - Token authentication, so the PIN is not needed on every connect.
    - The raw OBD/UDS request path (`sendPDU`), which the app does not use for live
      values.
-3. **Android polish.** A foreground service to keep the link alive while driving;
-   keep the PIN in the Keystore rather than plain preferences.
+3. **Android polish.** Keep the PIN in the Keystore rather than plain preferences.
 
 ## Open questions
 - Token lifecycle: how long a token stays valid and whether it is bound to a phone.

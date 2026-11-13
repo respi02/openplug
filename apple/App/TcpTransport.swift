@@ -2,8 +2,9 @@
 import Foundation
 import OpenPlugBLE
 
-/// Development transport: reaches `cargo run --example fake_dongle` on this machine
-/// (works from the Mac app and from the iOS simulator). Debug builds only.
+/// Development transport: reaches `cargo run --example fake_dongle` over TCP — on this
+/// machine (Mac app, iOS simulator) or, from an iPhone, on a computer on the same
+/// network. Debug builds only.
 final class TcpTransport: SessionTransport, @unchecked Sendable {
     private let host: String
     private let port: UInt16

@@ -24,6 +24,10 @@ targets:
         CFBundleVersion: "1"
         NSBluetoothAlwaysUsageDescription: OpenPlug talks to your DataPlug dongle over Bluetooth to read your car's values.
         UILaunchScreen: {}
+        # debug builds can reach the fake dongle on another machine
+        NSLocalNetworkUsageDescription: Debug builds can connect to a fake dongle running on a computer on your network.
+        # keep the BLE session (and trip recording) alive in the background
+        UIBackgroundModes: [bluetooth-central]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         LSApplicationCategoryType: public.app-category.utilities
     settings:

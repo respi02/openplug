@@ -68,9 +68,14 @@ Everything below has run against a real dongle in a real car (2026-11-13).
 | iOS / macOS app (SwiftUI) | [`apple/App/`](apple/App/) | ✅ live values on an iPhone over BLE; also runs on macOS |
 | Desktop harness + fake dongle | `core/examples/` | ✅ for development without a car |
 
-What OpenPlug does today is **read live values**. Not there yet: trip logging and
-statistics, the warning-light and AdBlue groups, the dongle's token authentication
-(the PIN is used on every connect), and the raw OBD/UDS request path.
+What OpenPlug does today: **live values**, a **trip log** (distance, time, speeds,
+fuel) with **refuel detection**, automatic reconnection whenever the dongle is in
+reach, and recording in the background. The trip log and background recording are new
+and have so far only been exercised against the fake dongle, not on a real drive.
+Not there yet: positions and maps, driving score, the warning-light and AdBlue groups,
+the dongle's token authentication (the PIN is used on every connect), and the raw
+OBD/UDS request path. What the original app offered, feature by feature, is in
+[`original_app_features.md`](research/notes/original_app_features.md).
 
 ## Architecture
 
@@ -90,6 +95,7 @@ BluetoothSppTransport             CoreBluetoothTransport
 | `srp`, `tls_prf`, `tls_handshake`, `tls_record`, `tls_client` | the TLS-SRP tunnel: SRP-6a (RFC 5054), TLS 1.2 with Encrypt-then-MAC (RFC 7366) and Extended Master Secret (RFC 7627), AES-128-CBC + HMAC-SHA1. Pure Rust, no C dependency |
 | `protobuf` | schema-less protobuf wire codec |
 | `dongle` | the application protocol: Subscribe request, DataElement decode, signal catalog |
+| `journal` | trips and refuels from the value stream (start, pause, resume, finish; JSON file) |
 | `link` | the read API: connect → authenticate → subscribe → stream of values |
 | `ffi` | the UniFFI facade for Kotlin and Swift (feature `ffi`) |
 | `transport` | the byte-channel trait, an adapter for any `Read + Write`, a test pipe |
@@ -132,9 +138,9 @@ the link — stop it while using OpenPlug.
 
 ## Roadmap
 
-1. Trip logging and statistics on the phone (the original app's main feature).
-2. More of the protocol: warning lights, AdBlue, token authentication, a foreground
-   service on Android to keep the link alive while driving.
+1. Prove the trip log on real drives; then vehicle status that persists while
+   disconnected, positions (trip start/end, parking), trip notes and export.
+2. More of the protocol: warning lights, AdBlue, token authentication.
 3. Polish on both apps: reconnecting, background behaviour, distribution.
 4. More cars: the catalog so far reflects one vehicle.
 
@@ -145,6 +151,7 @@ In [`research/notes/`](research/notes/):
 - [`connect_lite_overview.md`](research/notes/connect_lite_overview.md) · [`dataplug_hardware.md`](research/notes/dataplug_hardware.md) — background on the retired app and the hardware.
 - [`protocol_spec.md`](research/notes/protocol_spec.md) · [`protocol_findings.md`](research/notes/protocol_findings.md) — the protocol stack and how the tunnel was identified.
 - [`live_protocol.md`](research/notes/live_protocol.md) — the application protocol and the data-object catalog.
+- [`original_app_features.md`](research/notes/original_app_features.md) — what the original app did and what OpenPlug covers.
 - [`ble_transport.md`](research/notes/ble_transport.md) — how the BLE transport works.
 - [`tech_stack.md`](research/notes/tech_stack.md) · [`build_plan.md`](research/notes/build_plan.md) — architecture rationale, current state and plan.
 - [`code_licensing.md`](research/notes/code_licensing.md) — dependency licenses and the clean-room rationale.

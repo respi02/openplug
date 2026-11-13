@@ -1,8 +1,9 @@
 # OpenPlug — Android app
 
-> **Status: works against a real dongle (first live run 2026-11-13).** A thin Compose
-> shell over the shared Rust `core/`: pick a paired dongle, enter the label PIN, see
-> the live values. Debug builds also offer a TCP "fake dongle" target for development.
+> **Status:** live values work against a real dongle (first live run 2026-11-13).
+> Since then the app gained a trip log, automatic reconnection and a foreground
+> service; **that version builds but has not been run on a phone yet.** Debug builds
+> also offer a TCP "fake dongle" target for development.
 
 ## How it fits together
 
@@ -49,8 +50,10 @@ adb reverse tcp:4455 tcp:4455
 Then in a debug build choose **Fake dongle (TCP 127.0.0.1:4455)**, PIN `1234`.
 
 ## Permissions
-`BLUETOOTH_CONNECT` only (Android 12+): the app talks to an already bonded dongle, so
-it needs neither scanning nor location. Debug builds add `INTERNET` for the fake
+`BLUETOOTH_CONNECT` (Android 12+): the app talks to an already bonded dongle, so it
+needs neither scanning nor location. `FOREGROUND_SERVICE` /
+`FOREGROUND_SERVICE_CONNECTED_DEVICE` and `POST_NOTIFICATIONS` for the session
+service, which keeps recording while the app is in the background. Debug builds add `INTERNET` for the fake
 dongle. Pair the dongle (`DP_2_1_…`) in the system Bluetooth settings first.
 
 ## Notes from the first live run
@@ -59,7 +62,7 @@ dongle. Pair the dongle (`DP_2_1_…`) in the system Bluetooth settings first.
   own and takes the link over — stop or disable it while using OpenPlug.
 
 ## TODO
-- Foreground service to keep the connection alive while driving.
-- Trip logging, statistics, and labels for more data objects.
+- Run the trip log, reconnection and the foreground service on a phone and a real drive.
+- Labels for more data objects.
 - The PIN is remembered in app-private preferences in plain text; move it to the
   Keystore, or switch to the dongle's token authentication once that is decoded.
