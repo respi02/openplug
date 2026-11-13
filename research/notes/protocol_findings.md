@@ -2,8 +2,9 @@
 
 > **Status (2026-11-13):** the conclusion below was borne out — OpenPlug now
 > authenticates with the label PIN and reads live values from a real dongle. Two
-> refinements: the PIN is alphanumeric (ours is 8 capital letters), and the PIN is
-> accepted on every connect, not only shortly after switching on the ignition.
+> refinements: the PIN is alphanumeric (ours is 8 capital letters), and it was accepted
+> on repeated connects many minutes into a running session — we did not observe the
+> "within 2 min of switching on the ignition" limit mentioned below.
 
 Source: our own Bluetooth HCI snoop log from our own phone + our own dongle
 (920 frames) + reading the native libraries from the APK (static string/symbol
