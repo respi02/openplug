@@ -3,6 +3,11 @@
 > Open-source replacement for the **ŠKODA Connect LITE** app, talking to the
 > Bluetooth OBD dongle *Škoda DataPlug by TEXA*. Clean-room, interoperability-only.
 
+**🚧 Under active development — contributions welcome.** The protocol is reverse-
+engineered and the security layer is built; the apps are still being assembled. Help
+is especially wanted on the **iOS/BLE** side (see below). How to contribute:
+[Contributing](#contributing).
+
 ŠKODA discontinued the Connect LITE app on 1 July 2025. The **DataPlug hardware
 still works** — only the app that drove it is gone. OpenPlug is a clean,
 cross-platform (Android + iOS) reimplementation of the phone↔dongle protocol so
@@ -65,7 +70,7 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 | `tls_client` — TLS-SRP handshake orchestration | ✅ full loopback test |
 | `protobuf` — generic wire codec (decode/encode/inspect) | ✅ |
 | `dtp` — BLE/SPP link framing (`len ‖ 0x44 0x5e ‖ payload`) | ✅ reversed from vendor libs |
-| `.proto` schema + data-object layer | ✅ decoded from a live capture ([notes](research/notes/live_protocol.md)) |
+| `dongle` — app protocol: Subscribe request + DataElement decode | ✅ built from [`live_protocol.md`](research/notes/live_protocol.md) |
 
 The platform clients are scaffolded (not yet built): `android/` (Kotlin/Compose
 + RFCOMM/SPP transport) and `ios/` (SwiftUI + Core Bluetooth transport), both thin
@@ -79,13 +84,14 @@ shells over `core/` via UniFFI.
   (Encrypt-then-MAC + Extended Master Secret) → AES-128-CBC/HMAC-SHA1 records,
   anchored to real captured handshake bytes from our own dongle. No C dependency.
 - A generic protobuf codec and the DTP link framing.
-- The application protocol, decoded from a live plaintext capture:
-  `Subscribe{paramId, rate}` → a stream of `DataElement{url, value}`.
+- The application protocol, implemented in `core/` from the decoded spec: the
+  `Subscribe{paramId, rate}` request and the `DataElement{url, value}` response
+  decode (byte-scan that survives the dongle's "secured" block).
 
 **Next**
 
-1. Wire the decoded protocol into the core (`Subscribe` + `DataElement` decode) behind
-   a small read API.
+1. Expose a small read API over a live `Session` (connect → authenticate → subscribe
+   → event stream) and a desktop test harness.
 2. Android transport (RFCOMM/SPP) + a thin Compose UI — the fast path to end-to-end.
 3. iOS transport (BLE) — blocked on the session-open step (below).
 
@@ -117,6 +123,27 @@ In [`research/notes/`](research/notes/):
 - [`tech_stack.md`](research/notes/tech_stack.md) · [`build_plan.md`](research/notes/build_plan.md) — architecture and build plan.
 - [`code_licensing.md`](research/notes/code_licensing.md) — dependency licenses and the clean-room rationale.
 - [`ios_contribution_request.md`](research/notes/ios_contribution_request.md) — how an iOS-side collaborator can help.
+
+## Contributing
+
+Contributions are welcome — code, testing against real hardware, documentation, and
+most of all the **iOS reference** that unblocks the BLE transport (see *iOS help
+wanted* above). Good first areas: wiring the decoded protocol into `core/`, the
+Android SPP transport + UI, and a desktop test harness.
+
+To keep the project clean-room and interoperability-only, please:
+
+- **Write implementations from the specs** in [`research/notes/`](research/notes/)
+  (the protocol is documented there), not by copying vendor code.
+- **Never commit vendor binaries or secrets** — no `lib*.so`, APK/IPA, firmware,
+  config blobs, dongle PINs, VINs or raw captures. The `.gitignore` enforces this;
+  keep it that way.
+- Keep the **interoperability framing**: this project reads *your own* vehicle via
+  *your own* dongle with the owner's label PIN; it needs no account, server, or the
+  original app.
+
+Open an issue to discuss bigger changes first. By contributing you agree your code is
+MIT-licensed.
 
 ## Legal
 

@@ -23,6 +23,10 @@ pub enum PbError {
     #[error("unsupported wire type {0}")] BadWireType(u8),
 }
 
+/// Public varint helpers (for the length-delimited application framing).
+pub fn encode_varint(out: &mut Vec<u8>, v: u64) { write_varint(out, v); }
+pub fn decode_varint(b: &[u8], p: &mut usize) -> Result<u64, PbError> { read_varint(b, p) }
+
 fn read_varint(b: &[u8], p: &mut usize) -> Result<u64, PbError> {
     let mut val = 0u64;
     let mut shift = 0u32;
@@ -157,6 +161,11 @@ impl Builder {
         write_varint(&mut self.0, ((field as u64) << 3) | 2);
         write_varint(&mut self.0, v.len() as u64);
         self.0.extend_from_slice(v);
+        self
+    }
+    pub fn fixed32(mut self, field: u32, v: u32) -> Self {
+        write_varint(&mut self.0, ((field as u64) << 3) | 5);
+        self.0.extend_from_slice(&v.to_le_bytes());
         self
     }
     pub fn message(self, field: u32, sub: Builder) -> Self {
