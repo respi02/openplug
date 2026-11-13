@@ -1,85 +1,55 @@
-# OpenPlug — build plan and preparation status (2026-11-12)
+# OpenPlug — state and plan (updated 2026-11-13)
 
-Consolidates protocol_spec, protocol_findings, tech_stack, code_licensing. What is
-certain, what remains, and in what order.
+Where the project stands and what comes next. The reasoning behind the architecture
+is in [`tech_stack.md`](tech_stack.md); the protocol is in
+[`protocol_spec.md`](protocol_spec.md), [`live_protocol.md`](live_protocol.md) and
+[`ble_transport.md`](ble_transport.md).
 
-## Established facts (offline-confirmed)
-- **Transport:** Android = BT Classic RFCOMM/SPP; iOS = BLE (Core Bluetooth). The
-  dongle is dual-mode (FCC T8RDP15/T8RDP22: DTS+DSS grants), **not MFi**. Both use
-  the same tunnel, only a different "pipe".
-- **Secure tunnel:** TLS 1.2, cipher `TLS_SRP_SHA_WITH_AES_128_CBC_SHA` (0xC01D),
-  mbedTLS 2.4.0, no certificates, with Encrypt-then-MAC + Extended Master Secret.
-- **SRP:** RFC 5054 **1536-bit** group, g=2; identity **`PA`** (PIN auth) / a token
-  after first pairing; password = **the PIN on the label**; salt comes from the
-  dongle in the handshake.
-- **Application protocol:** nanopb protobuf, `_TDongleReq`/`_TDongleRsp` +
-  fragmentation; below that the OBD/UDS PDU layer. The full API is in
-  `com.dat.datlib` (not obfuscated) + `dat::` in libdongles.so.
+## Established facts (all confirmed on real hardware)
+- **Transport:** Bluetooth Classic RFCOMM/SPP (used by Android) and BLE (used by iOS
+  and macOS). The dongle is dual-mode, not MFi. Both carry the same bare TLS records;
+  no extra framing on either.
+- **Secure tunnel:** TLS 1.2, `TLS_SRP_SHA_WITH_AES_128_CBC_SHA` (0xC01D), no
+  certificates, Encrypt-then-MAC + Extended Master Secret. The dongle sends
+  ServerHello, ServerKeyExchange and ServerHelloDone as three separate records.
+- **SRP:** RFC 5054 1536-bit group, g=2; identity `PA`; password = the PIN on the
+  label (alphanumeric — ours is 8 capital letters); salt from the dongle.
+- **Application protocol:** length-prefixed protobuf. The client subscribes to
+  parameter groups; the dongle streams data objects. No further authentication
+  exchange follows the TLS handshake.
+- **One client at a time.** A second connection takes the link over, and the dongle
+  does not advertise over BLE while a Classic client holds it.
 
-## Architecture (decided)
-Shared **Rust core** (UniFFI → Kotlin+Swift) · platform **transport shim** · thin
-native **UI**.
-```
-core (Rust):  Transport trait │ TlsSrpSession │ DongleCodec(protobuf) │ TransactionMgr │ PduBuilder(UDS/OBD) │ DataObjects
-                     ▲                                   api via UniFFI ▼
-android: BluetoothSocket(SPP) ──┐                 Kotlin+Compose UI
-ios:     CoreBluetooth(GATT)  ──┘                 SwiftUI UI
-```
-
-## Mapping the dat::/datlib API → core modules
-| Core module | Covers |
+## What exists
+| Piece | State |
 |---|---|
-| `Transport` trait (`send/recv bytes`) | `IIOStream`, `DTPStream`, `InputBufferedStream` |
-| `TlsSrpSession` | `SecureTunnel`, TLS-SRP |
-| `DongleCodec` | `_TDongleReq/Rsp`, `_TSubFragment`, `DongleSocket` reassembly, `DataAggregator`/`PduAggregator` |
-| `TransactionMgr` | `TransactionManager`, `*Transaction` (Pin/Token/Pdu/DataSubscription/Simple/ConfigUpdate) |
-| `Auth` | `authenticateByPIN/Token`, `getToken/resetToken` |
-| `PduBuilder` | `sendPDU`, `PDUProtocol`, `TPDURequest`, `PDUResponse` |
-| `DataObjects` | `subscribeObject/getDataObject`, `DataElement` (eType/state) |
-| `Info` | `getVersion/HWRevision/SerialNumber/DiagStatus/ActivationStatus` |
+| `core/` — tunnel, protocol, read API, UniFFI facade | done; offline tests + live |
+| `core/examples/live`, `fake_dongle` | done |
+| `android/` — Gradle project, SPP transport, Compose UI | done; live values on a phone |
+| `apple/` — Core Bluetooth transport, macOS CLI | done; live values from a Mac |
+| `ios/` — app | not started |
 
-## Protobuf schema status
-- `o/P6F4jn8H6L.java` holds **72 protobuf-java messages** (standard
-  GeneratedMessage, obfuscated names). Field numbers + types are in
-  `writeTo()`/`readTag()` — certain and readable.
-- **The semantic names are not in the obfuscated Java.** A purely static
-  extraction is possible but needs a proper Java parser (obfuscated Builder/message
-  names + jadx artefacts defeat a quick regex) — not worth it.
-- **Chosen path:** one **plaintext capture** → `protoc --decode_raw` gives field
-  numbers/types/nesting unambiguously → assign names by the operation that produced
-  each message (getVersion, subscribe, sendPDU…) and by the `_T*` names in
-  libdongles.so. Then `.proto` → `prost`.
-
-## Work order
-### Done offline (2026-11-12)
-- Protocol mapped; TLS-SRP params found; transport decided for both platforms;
-  API→modules mapped; **crypto core built and verified**.
-- `core/` Rust: `transport` + test pipe; **SRP-6a** (RFC 5054 vector + 1536-bit
-  dongle group); **TLS 1.2 PRF-SHA256** (known-answer); **TLS record** Encrypt-then-MAC;
-  **TLS handshake** (master secret, EMS, ServerKeyExchange parser verified against
-  real dongle bytes); **tls_client** full TLS-SRP handshake with a loopback test;
-  **generic protobuf** codec. `cargo test` → all pass.
-
-### Remaining offline (no dongle)
-1. Desktop test harness: a BT Classic connection from the Mac (USB BT adapter) as a
-   "fake phone" — prepare the code, run it with the dongle.
-2. UniFFI interface (API from the table above), stubs for the upper layers.
-3. Platform transport skeletons (Android RFCOMM, iOS BLE).
-
-### Needs the dongle (when there's time/quiet)
-4. **BLE scan** of the powered dongle → confirm LE and the service/characteristic
-   UUIDs for the iOS transport.
-5. **One plaintext capture** → the `.proto` + the `url` data-object catalog.
-6. Verify the handshake→auth→subscribe/PDU sequence on real bytes; finish `DongleCodec`.
-7. Android shim + UI (end-to-end), then iOS (BLE) + SwiftUI.
+## Next
+1. **iOS app.** Build the core for the iOS targets (XCFramework), add a SwiftUI shell
+   over `OpenPlugBLE`. The transport needs no changes.
+2. **Trip logging.** Phone-side: detect a drive from the value stream, record
+   distance, fuel and time, keep statistics. Nothing on the dongle is involved.
+3. **Protocol coverage.**
+   - Decode the groups the app subscribes to that we do not label yet: 9 (service
+     interval status), 11 (warning lights), 17 (boost pressure), 34 (catalyst
+     temperature), 44 (AdBlue).
+   - The getters the app sends before subscribing (`f15{sel}`, empty `f1/f4/f5/f22`):
+     their responses are not decoded.
+   - Token authentication, so the PIN is not needed on every connect.
+   - The raw OBD/UDS request path (`sendPDU`), which the app does not use for live
+     values.
+4. **Android polish.** A foreground service to keep the link alive while driving;
+   keep the PIN in the Keystore rather than plain preferences.
 
 ## Open questions
-- **Does the same TLS-SRP+protobuf tunnel run over BLE GATT? UNVERIFIED.** Our
-  capture was 100% Classic SPP (0 BLE bytes). BLE is characteristic-based, not a
-  stream, so TLS records need segmentation/reassembly over GATT and the dongle may
-  add its own framing. Resolve by: (1) BLE scan + GATT enumeration; (2) active
-  probe — write a TLS-SRP ClientHello to the write characteristic from any BLE
-  central (Mac/Android, our own core) and check for a ServerHello notification.
-  This needs neither the retired iOS app nor an iOS device.
-- Token lifecycle: how long valid, where the dongle binds it (per-phone?).
-- `url` → specific vehicle signal: from `getSupportedDiagParameters` at runtime.
+- Token lifecycle: how long a token stays valid and whether it is bound to a phone.
+- What the `0x…253` "secured" block in each response protects, and whether any value
+  depends on it (none seen so far).
+- How much of the data-object catalog differs between vehicles; ours is one car.
+- Dongle sleep behaviour with the ignition off (it was reachable over BLE at some
+  times and not at others).

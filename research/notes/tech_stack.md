@@ -1,5 +1,10 @@
 # OpenPlug — language/stack choice for iOS + Android (2026-11-12)
 
+> **Status (2026-11-13):** the choices below were carried out and hold up: the Rust
+> core runs unchanged under an Android app (Classic SPP) and a Swift client (BLE),
+> both verified on a real dongle. Open points noted here as "remaining" are resolved;
+> see [`build_plan.md`](build_plan.md) for the current state.
+
 ## First, the real problem: Bluetooth transport, not language
 
 The dongle speaks **Bluetooth Classic RFCOMM/SPP** (our capture: 357 SPP frames,
@@ -22,9 +27,8 @@ MFi**. iOS goes via **Core Bluetooth (BLE)**. Evidence:
 - EU DoC (TEXA DoC-DATAPLUG-08): "CAN BUS INTERFACE", brands VW/SEAT/Škoda/Audi,
   "DataPlug 1000" (= our label SW 1000), RED 2014/53/EU, 0 dBm.
 - Our Android capture = the Classic/SPP side; iOS uses the BLE side of the same dongle.
-- Remaining: confirm BLE with a scanner on the powered dongle (the user will do
-  this) + that the same TLS-SRP+protobuf tunnel runs over BLE GATT (highly likely
-  — the protocol is transport-agnostic).
+- Confirmed since: the dongle advertises BLE and runs the same TLS-SRP + protobuf
+  tunnel over GATT ([`ble_transport.md`](ble_transport.md)).
 
 This decision is independent of the language — it lives in a thin transport layer.
 **Conclusion: both iOS and Android feasible, shared core, transport = SPP
@@ -60,8 +64,8 @@ This decision is independent of the language — it lives in a thin transport la
 | Flutter/Dart | Dart has no TLS-SRP → FFI into C anyway; the iOS BT constraint remains. |
 | Reuse `libdongles.so`/`libmbedtls.so` from the APK | ELF Android-only, unusable on iOS; redistributing a vendor binary (TEXA) is legally worse. A reimplementation is cleaner. |
 
-## Work order
-1. **Now (offline, done):** protocol mapped, TLS-SRP params found, transport for
+## Work order (as planned on 2026-11-12; steps 1–4 and the iOS transport are done)
+1. **Offline (done):** protocol mapped, TLS-SRP params found, transport for
    both platforms decided, API→modules mapped, crypto core built and verified.
 2. **One live plaintext capture** (ignition on) → fill in the `.proto` and the `url` object catalog.
 3. **Rust core against captured bytes**: TLS-SRP handshake (done), then

@@ -3,10 +3,9 @@
 > Open-source replacement for the **ŠKODA Connect LITE** app, talking to the
 > Bluetooth OBD dongle *Škoda DataPlug by TEXA*. Clean-room, interoperability-only.
 
-**🚧 Under active development — contributions welcome.** The protocol is reverse-
-engineered and both transports work against a real dongle: the Android app reads live
-values over Bluetooth Classic, and the same core runs over BLE. See
-[Contributing](#contributing).
+**🚧 Under active development — contributions welcome.** It already reads live
+values from a real dongle: on Android over Bluetooth Classic, and from a Mac over BLE.
+An iOS app is next. See [Status](#status) and [Contributing](#contributing).
 
 ŠKODA discontinued the Connect LITE app on 1 July 2025. The **DataPlug hardware
 still works** — only the app that drove it is gone. OpenPlug is a clean,
@@ -44,105 +43,116 @@ trip logging and statistics — see the background notes below.)
 ## How the dongle works (reverse-engineered from our own device + traffic)
 
 ```
-Bluetooth  →  TLS-SRP tunnel        →  protobuf          →  OBD / UDS
-(Android:      (TLS 1.2, SRP-6a,        (_TDongleReq/Rsp)     over CAN
- Classic SPP;   cipher 0xC01D,                                (the dongle is a
- iOS: BLE)      identity "PA",                                 CAN/OBD gateway)
-                password = PIN on label)
+Bluetooth            →  TLS-SRP tunnel         →  protobuf            →  the car
+Classic SPP (Android)    TLS 1.2, SRP-6a,          subscribe to a          the dongle is a
+or BLE (iOS, macOS)      cipher 0xC01D,            parameter group,        CAN/OBD gateway
+                         identity "PA",            get a stream of
+                         password = label PIN      data objects
 ```
 
 No server is involved — everything is local between phone and dongle. The dongle is
-dual-mode Bluetooth (FCC ID T8RDP15/T8RDP22): Android uses the Classic/SPP side, iOS
-uses the BLE side — so no MFi is required. Both carry the same bare TLS records; on
-BLE each record is written to one characteristic and read back from it after a
-one-byte notification (see [`ble_transport.md`](research/notes/ble_transport.md)).
+dual-mode Bluetooth (FCC ID T8RDP15/T8RDP22), so no MFi is required. Both sides carry
+the same bare TLS records: on Classic they travel on the serial channel; on BLE each
+record is written to one characteristic and read back from it after a one-byte
+notification ([`ble_transport.md`](research/notes/ble_transport.md)).
+
+## Status
+
+Everything below has run against a real dongle in a real car (2026-11-13).
+
+| Piece | Where | State |
+|---|---|---|
+| Protocol core (Rust) | [`core/`](core/) | ✅ TLS-SRP tunnel + read path; offline tests + live |
+| Android app | [`android/`](android/) | ✅ picks a paired dongle, takes the PIN, shows live values (Classic SPP) |
+| BLE transport (Swift) + macOS CLI | [`apple/`](apple/) | ✅ live values over BLE from a Mac |
+| iOS app | [`ios/`](ios/) | ⏳ not written; its transport is the one in `apple/` |
+| Desktop harness + fake dongle | `core/examples/` | ✅ for development without a car |
+
+What OpenPlug does today is **read live values**. Not there yet: trip logging and
+statistics, the warning-light and AdBlue groups, the dongle's token authentication
+(the PIN is used on every connect), and the raw OBD/UDS request path.
 
 ## Architecture
 
-Shared **Rust core** (`core/`) → platform transport shim → thin native UI
-(Kotlin/Compose on Android, SwiftUI on iOS), bound via UniFFI.
+A shared **Rust core** does all protocol work; each platform adds a small Bluetooth
+transport and a thin native UI, bound through UniFFI.
 
-| Layer | Status |
-|---|---|
-| `transport` — byte-stream trait + test pipe | ✅ |
-| `srp` — SRP-6a (RFC 5054) | ✅ verified vs RFC vector |
-| `tls_prf` — TLS 1.2 PRF-SHA256 | ✅ verified vs known-answer |
-| `tls_record` — AES-128-CBC + HMAC-SHA1, Encrypt-then-MAC (RFC 7366) | ✅ |
-| `tls_handshake` — master secret, EMS (RFC 7627), ServerKeyExchange parse | ✅ parses real dongle bytes |
-| `tls_client` — TLS-SRP handshake orchestration | ✅ full loopback test |
-| `protobuf` — generic wire codec (decode/encode/inspect) | ✅ |
-| `dtp` — a framing found in the vendor library (`len ‖ 0x44 0x5e ‖ payload`) | ✅ implemented, but not used on the wire by either transport |
-| `dongle` — app protocol: Subscribe request + DataElement decode | ✅ built from [`live_protocol.md`](research/notes/live_protocol.md) |
-| `link` — read API: connect → authenticate → subscribe → value stream | ✅ verified live against a real dongle (Android/SPP, 2026-11-13) |
-| `ffi` — UniFFI facade for Kotlin/Swift (feature `ffi`) | ✅ tested from Rust; Kotlin + Swift bindings generate |
-
-Platform clients, both thin shells over `core/` via UniFFI: `android/`
-(Kotlin/Compose + RFCOMM/SPP transport) builds and works against a real dongle;
-`apple/` holds the Core Bluetooth transport (shared by macOS and iOS) and a macOS
-command-line client, which also works against a real dongle; the iOS app itself
-(`ios/`) is not written yet.
-
-## Status & roadmap
-
-**Done & offline-verified**
-
-- The full security layer of the tunnel: SRP-6a → TLS 1.2 TLS-SRP handshake
-  (Encrypt-then-MAC + Extended Master Secret) → AES-128-CBC/HMAC-SHA1 records,
-  anchored to real captured handshake bytes from our own dongle. No C dependency.
-- A generic protobuf codec.
-- The application protocol, implemented in `core/` from the decoded spec: the
-  `Subscribe{paramId, rate}` request and the `DataElement{url, value}` response
-  decode (byte-scan that survives the dongle's "secured" block).
-
-**Next**
-
-1. ~~First live run against a real dongle~~ — done on Android/SPP (2026-11-13): the
-   app authenticates with the label PIN and shows the car's live values.
-2. Android transport (RFCOMM/SPP) + a thin Compose UI — the fast path to end-to-end.
-3. ~~Work out the BLE transport~~ — done (2026-11-13): full session and live values
-   over BLE from a Mac, with the unmodified core.
-4. ~~Core Bluetooth transport~~ — done: the Swift package in `apple/` reads live values
-   from macOS. Next: a SwiftUI app for iOS/macOS on top of it.
-
-## Build & test (offline, no dongle needed)
-
-```sh
-cd core && cargo test
+```
+Compose UI (Android)              SwiftUI (iOS, planned) / CLI (macOS)
+BluetoothSppTransport             CoreBluetoothTransport
+        └──────── ByteTransport (UniFFI) ────────┘
+                    openplug-core (Rust)
+   link → dongle (protobuf) → tls_client / tls_record / srp → bytes
 ```
 
-All cryptographic layers are verified offline, anchored to real captured handshake
-bytes from our own dongle.
+| Core module | Role |
+|---|---|
+| `srp`, `tls_prf`, `tls_handshake`, `tls_record`, `tls_client` | the TLS-SRP tunnel: SRP-6a (RFC 5054), TLS 1.2 with Encrypt-then-MAC (RFC 7366) and Extended Master Secret (RFC 7627), AES-128-CBC + HMAC-SHA1. Pure Rust, no C dependency |
+| `protobuf` | schema-less protobuf wire codec |
+| `dongle` | the application protocol: Subscribe request, DataElement decode, signal catalog |
+| `link` | the read API: connect → authenticate → subscribe → stream of values |
+| `ffi` | the UniFFI facade for Kotlin and Swift (feature `ffi`) |
+| `transport` | the byte-channel trait, an adapter for any `Read + Write`, a test pipe |
+| `dtp` | a framing found in the vendor library; not used on the wire by either transport |
 
-### Try it end to end (still no dongle needed)
+## Build & run
+
+**Core, offline (no dongle needed):**
 
 ```sh
 cd core
-cargo run --example fake_dongle                       # terminal 1: stand-in dongle on TCP
+cargo test --features ffi
+```
+
+**End to end without a car** — a stand-in dongle with synthetic values:
+
+```sh
+cd core
+cargo run --example fake_dongle                                      # terminal 1
 OPENPLUG_PIN=1234 cargo run --example live -- --tcp 127.0.0.1:4455   # terminal 2
 ```
 
-`fake_dongle` speaks the real stack (TLS-SRP + the framed protobuf) with synthetic
-values. Against real hardware, pair the dongle with a computer and point the harness
-at its serial port: `cargo run --example live -- --serial /dev/cu.<dongle>` (the PIN
-from the label goes in `OPENPLUG_PIN` or is prompted). Add `--raw` to dump every
-message.
+**Android** (details in [`android/README.md`](android/README.md)):
+
+```sh
+cd android && ./build-core.sh && ./gradlew assembleDebug
+```
+
+**macOS over BLE** (details in [`apple/README.md`](apple/README.md)):
+
+```sh
+cd apple && ./build-core.sh && swift build
+OPENPLUG_PIN=<PIN from the label> .build/debug/openplug-cli
+```
+
+The dongle serves one client at a time, and stops advertising over BLE while a phone
+holds it. If the original app is still installed, it reconnects on its own and takes
+the link — stop it while using OpenPlug.
+
+## Roadmap
+
+1. iOS app: the core built for iOS + a SwiftUI shell over the existing BLE transport.
+2. Trip logging and statistics on the phone (the original app's main feature).
+3. More of the protocol: warning lights, AdBlue, token authentication, a foreground
+   service on Android to keep the link alive while driving.
+4. More cars: the catalog so far reflects one vehicle.
 
 ## Documentation
 
 In [`research/notes/`](research/notes/):
 
-- [`connect_lite_overview.md`](research/notes/connect_lite_overview.md) · [`dataplug_hardware.md`](research/notes/dataplug_hardware.md) — background on the app and the hardware.
-- [`protocol_spec.md`](research/notes/protocol_spec.md) · [`protocol_findings.md`](research/notes/protocol_findings.md) — the phone↔dongle protocol.
-- [`live_protocol.md`](research/notes/live_protocol.md) — the decrypted application protocol and data-object catalog.
-- [`ble_transport.md`](research/notes/ble_transport.md) — how the dongle's BLE transport works.
-- [`tech_stack.md`](research/notes/tech_stack.md) · [`build_plan.md`](research/notes/build_plan.md) — architecture and build plan.
+- [`connect_lite_overview.md`](research/notes/connect_lite_overview.md) · [`dataplug_hardware.md`](research/notes/dataplug_hardware.md) — background on the retired app and the hardware.
+- [`protocol_spec.md`](research/notes/protocol_spec.md) · [`protocol_findings.md`](research/notes/protocol_findings.md) — the protocol stack and how the tunnel was identified.
+- [`live_protocol.md`](research/notes/live_protocol.md) — the application protocol and the data-object catalog.
+- [`ble_transport.md`](research/notes/ble_transport.md) — how the BLE transport works.
+- [`tech_stack.md`](research/notes/tech_stack.md) · [`build_plan.md`](research/notes/build_plan.md) — architecture rationale, current state and plan.
 - [`code_licensing.md`](research/notes/code_licensing.md) — dependency licenses and the clean-room rationale.
 
 ## Contributing
 
 Contributions are welcome — code, testing against real hardware (other cars and
-dongle revisions especially), and documentation. Good first areas: the iOS/macOS SwiftUI
-app, labelling more data objects, and trip logging.
+dongle revisions especially), and documentation. Good first areas: the iOS/macOS
+SwiftUI app, labelling more data objects, and trip logging.
 
 To keep the project clean-room and interoperability-only, please:
 

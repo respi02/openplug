@@ -1,5 +1,12 @@
 # OpenPlug — DataPlug protocol specification (offline reconstruction, 2026-11-12)
 
+> **Status (2026-11-13):** this is the original offline reconstruction. Everything
+> needed for reading live values has since been confirmed on real hardware; where a
+> later finding corrects a statement below, it is marked **[updated]**. The current
+> application protocol is in [`live_protocol.md`](live_protocol.md), the BLE transport
+> in [`ble_transport.md`](ble_transport.md), and the overall state in
+> [`build_plan.md`](build_plan.md).
+
 All derived offline from our own APK + one of our own HCI captures (CZ § 66(1)(d)).
 Library vendor: **DAT / CYMOTIVE** (Java package `com.dat.datlib`, not obfuscated;
 native `dat::` in `libdongles.so`). See protocol_findings and build_plan.
@@ -17,13 +24,16 @@ native `dat::` in `libdongles.so`). See protocol_findings and build_plan.
 ```
 
 ## 1. Transport
-- **Bluetooth Classic, RFCOMM/SPP** (not BLE). Dongle `DP_2_1_<serial>`, paired via
-  the PIN on the label (BT pairing).
+- **Bluetooth Classic, RFCOMM/SPP** on Android. Dongle `DP_2_1_<serial>`.
+  **[updated]** The dongle also serves the same tunnel over **BLE** (used by iOS), see
+  [`ble_transport.md`](ble_transport.md). The label PIN is the TLS-SRP password, not a
+  Bluetooth pairing code.
 - Over SPP runs **TLS 1.2**, cipher **0xC01D `TLS_SRP_SHA_WITH_AES_128_CBC_SHA`**,
   no certificates.
 - Plaintext boundary in the code: `dat::SecureTunnel::send/recv` →
   `mbedtls_ssl_write/read`. Below that `DTPStream` (fragmentation) and
-  `InputBufferedStream`.
+  `InputBufferedStream`. **[updated]** On the wire neither transport shows the DTP
+  framing: the TLS records are sent bare.
 
 ## 2. Authentication (SRP / PSK, RFC 5054)
 - `ConnectionImpl.lib_authenticateByPIN(String identity, String pin)` → SRP
@@ -81,9 +91,9 @@ native `dat::` in `libdongles.so`). See protocol_findings and build_plan.
 - `eType`: ABSOLUTE0, ACTIVITY1, ALTERNATIVE2, BINARY3, ENUMERATION4, LISTENTITY5,
   OBJECTENTITY6, RELATIVE7, TEXT8, TIME9.
 - `state`: OK0, ERROR2, NODATA4.
-- `url` = numeric object ID (RPM, battery voltage, mileage…). **The url→signal
-  mapping is not a static constant** — it comes from the dongle
-  (`getSupportedDiagParameters`) or the signed configuration blob.
+- `url` = numeric object ID (engine speed, battery voltage, mileage…). **[updated]**
+  The id → name mapping is a small table the app keeps on the phone; the dongle only
+  sends numeric ids. The decoded catalog is in [`live_protocol.md`](live_protocol.md).
 
 ## 7. States and errors
 - **`DiagnosticStatus`**: 1 DeviceIsBusy, 2 ConfigurationVerifyInProgress, 3
@@ -98,12 +108,15 @@ native `dat::` in `libdongles.so`). See protocol_findings and build_plan.
   dongle (`ConfigurationUpdateTransaction`), **signed → not forgeable**. OpenPlug
   does not need it to read the vehicle (PDU + data objects suffice).
 
-## What remains (needs one live plaintext capture)
-1. Fill in the semantic names and exact field layouts of the 72 protobuf messages
-   (Java schema + plaintext).
-2. The `url` data-object catalog ↔ specific signals (from `getSupportedDiagParameters` at runtime).
-3. Verify the handshake→auth→subscribe sequence on real bytes.
-→ Plan: a Frida hook on `mbedtls_ssl_read/write` on the running app with ignition on.
+## What remained — and what happened **[updated]**
+1. The message layouts needed for reading (Subscribe, the response container,
+   DataElement) were taken from a plaintext capture — see `live_protocol.md`. The
+   other messages of the 72 are still unnamed.
+2. The data-object catalog is decoded for the objects our car streams.
+3. The handshake → subscribe → stream sequence is verified live, over both SPP and
+   BLE. No separate authentication exchange follows the TLS-SRP handshake.
+Still open: token authentication, the getters' responses, and the PDU path
+(`build_plan.md`).
 
 ## Feasibility status: GREEN
 No server. Everything is phone↔dongle, standard TLS-SRP + protobuf + OBD/UDS. A

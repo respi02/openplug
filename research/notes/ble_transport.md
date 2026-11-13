@@ -1,4 +1,4 @@
-# OpenPlug — BLE transport, CONFIRMED on live hardware (2026-11-13)
+# OpenPlug — the BLE transport (solved 2026-11-13)
 
 > **SOLVED (2026-11-13, afternoon).** The BLE transport carries the **same bare TLS
 > records as SPP** — no DTP framing, no bonding, no session-open write. What we were
@@ -25,6 +25,10 @@
 > plus a 9-byte read, each with its own doorbell, so feed reads into a TLS record
 > reassembler; (b) live values were confirmed too: 25 s of streaming (95 readings,
 > record sizes identical to SPP) with no MAC errors.
+>
+> A Swift implementation is in `apple/Sources/OpenPlugBLE/` and has read live values
+> from macOS. Find the dongle by its service UUID rather than by name: over BLE we
+> have seen it report both `DP_2_1_<serial>` and `CARe`.
 >
 > **The sections below are the earlier, now superseded, investigation.**
 

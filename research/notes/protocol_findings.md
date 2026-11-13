@@ -1,5 +1,10 @@
 # DataPlug ↔ app protocol: decision gate resolved (2026-11-12)
 
+> **Status (2026-11-13):** the conclusion below was borne out — OpenPlug now
+> authenticates with the label PIN and reads live values from a real dongle. Two
+> refinements: the PIN is alphanumeric (ours is 8 capital letters), and the PIN is
+> accepted on every connect, not only shortly after switching on the ignition.
+
 Source: our own Bluetooth HCI snoop log from our own phone + our own dongle
 (920 frames) + reading the native libraries from the APK (static string/symbol
 analysis only, nothing executed). CZ § 66(1)(d) of Act No. 121/2000 Sb.
