@@ -5,6 +5,14 @@ edition = "2021"
 description = "OpenPlug shared core: transport, TLS-SRP tunnel and the DataPlug protocol. Platform-independent."
 license = "MIT"
 
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
 [dependencies]
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
@@ -14,9 +22,16 @@ aes = "0.8.4"
 hmac = "0.12.1"
 sha2 = "0.10.9"
 getrandom = "0.3"
+uniffi = { version = "0.32.2", optional = true }
 
 [dev-dependencies]
 hex = "0.4.3"
 
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2"
+
+[features]
+# UniFFI facade (`src/ffi.rs`) for the Kotlin/Swift apps.
+ffi = ["dep:uniffi"]
+# The `uniffi-bindgen` binary that generates the Kotlin/Swift bindings.
+bindgen = ["ffi", "uniffi/cli"]

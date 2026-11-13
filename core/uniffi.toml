@@ -1,0 +1,6 @@
+[bindings.kotlin]
+package_name = "com.openplug.core"
+cdylib_name = "openplug_core"
+
+[bindings.swift]
+module_name = "OpenPlugCore"

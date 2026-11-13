@@ -13,10 +13,15 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Minimal Compose UI skeleton: connection state + a list of live data objects.
- * The real views (trips, fuel, statistics) follow once the `.proto` is reconstructed.
+ * The real views (trips, fuel, statistics) come later.
  *
- * NOTE: scaffold — not built here. `DongleViewModel` would own the UniFFI
- * `DongleSession` and expose state.
+ * NOTE: scaffold — not built here. A `DongleViewModel` would own the UniFFI
+ * `Dongle` and run this loop on a background dispatcher:
+ *
+ *     val transport = BluetoothSppTransport(device).apply { open() }
+ *     val dongle = Dongle.connect(transport, pin)   // throws DongleException.WrongPin
+ *     dongle.subscribeDefaults()
+ *     while (isActive) publish(dongle.nextReadings())
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,7 +42,7 @@ fun OpenPlugScreen() {
         Spacer(Modifier.height(8.dp))
         Text(if (connected) "Connected" else "Disconnected")
         Spacer(Modifier.height(12.dp))
-        Button(onClick = { /* TODO: connect via core.connect(transport, pin) */ }) {
+        Button(onClick = { /* TODO: start the DongleViewModel loop above */ }) {
             Text(if (connected) "Disconnect" else "Connect DataPlug")
         }
         Spacer(Modifier.height(16.dp))

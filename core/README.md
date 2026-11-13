@@ -1,7 +1,7 @@
 # openplug-core
 
 Shared, platform-independent core of OpenPlug (transport, TLS-SRP, DataPlug
-protocol). Bindings for Android/iOS via UniFFI will be added later.
+protocol). Bindings for Android/iOS come from the UniFFI facade in `src/ffi.rs`.
 
 ## Status
 - ✅ `transport` — byte-stream trait + in-memory test pipe
@@ -14,7 +14,8 @@ protocol). Bindings for Android/iOS via UniFFI will be added later.
 - ✅ `dtp` — BLE link framing (not used on SPP)
 - ✅ `dongle` — app protocol: Subscribe request, DataElement decode, signal catalog
 - ✅ `link` — read API: connect → authenticate → subscribe → value stream
-- ⏳ first run against real hardware; transactions beyond Subscribe; OBD/UDS PDU; UniFFI facade
+- ✅ `ffi` — UniFFI facade for Kotlin/Swift (`--features ffi`; bindings via `--features bindgen --bin uniffi-bindgen`)
+- ⏳ first run against real hardware; transactions beyond Subscribe; OBD/UDS PDU
 
 ## Examples
 - `live` — desktop harness: `--serial DEVICE` (paired dongle) or `--tcp HOST:PORT`
@@ -23,5 +24,6 @@ protocol). Bindings for Android/iOS via UniFFI will be added later.
 
 ## Test (offline, no dongle)
 ```sh
-cd core && cargo test
+cd core && cargo test                 # core only
+cd core && cargo test --features ffi  # + the UniFFI facade
 ```

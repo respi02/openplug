@@ -28,7 +28,7 @@ BLE is GATT (characteristic write + notify), not a byte stream like RFCOMM/SPP:
 ```
 SwiftUI
    │
-CoreBluetoothTransport  ──implements──►  (Rust) Transport callback interface (UniFFI)
+CoreBluetoothTransport  ──implements──►  ByteTransport (UniFFI, core/src/ffi.rs)
    │
 CBPeripheral write/notify characteristic   openplug-core (TLS-SRP + protocol)
 ```

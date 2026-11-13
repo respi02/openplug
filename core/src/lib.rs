@@ -2,7 +2,7 @@
 //!
 //! Shared core of OpenPlug — an open replacement for the Škoda Connect LITE app
 //! for the "Škoda DataPlug by TEXA" Bluetooth OBD dongle. Platform-independent;
-//! Android/iOS bindings via UniFFI (to be added later).
+//! Android/iOS bindings via UniFFI (feature `ffi`).
 //!
 //! Layers (see research/notes/protocol_spec.md):
 //!   Transport (SPP/BLE/test)  →  TLS-SRP tunnel (TLS 1.2)  →  protobuf
@@ -15,11 +15,16 @@
 //! [`dtp`] (link framing) and [`dongle`] (Subscribe request + DataElement decode,
 //! from the decoded live protocol in research/notes/live_protocol.md) and [`link`]
 //! (the read API: connect → authenticate → subscribe → stream of values).
-//! Remaining: transactions beyond Subscribe, the raw OBD/UDS PDU path, and the
-//! UniFFI facade.
+//! With the `ffi` feature, [`ffi`] exposes that read API to Kotlin/Swift via UniFFI.
+//! Remaining: transactions beyond Subscribe and the raw OBD/UDS PDU path.
+
+#[cfg(feature = "ffi")]
+uniffi::setup_scaffolding!();
 
 pub mod dongle;
 pub mod dtp;
+#[cfg(feature = "ffi")]
+pub mod ffi;
 pub mod groups;
 pub mod link;
 pub mod protobuf;

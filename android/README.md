@@ -10,31 +10,48 @@
 ```
 Compose UI (MainActivity)
         │
-BluetoothSppTransport  ──implements──►  (Rust) Transport callback interface
+BluetoothSppTransport  ──implements──►  ByteTransport (UniFFI, from core/src/ffi.rs)
         │                                        │
 Android BluetoothSocket (RFCOMM/SPP)      openplug-core (TLS-SRP + protocol)
 ```
 
-The Rust core is built for Android with **cargo-ndk** and exposed to Kotlin via
-**UniFFI** (see `android/uniffi/openplug.udl`). Kotlin implements the `Transport`
-callback interface backed by a `BluetoothSocket`; the core drives the TLS-SRP
-handshake and the dongle protocol over it.
+The Rust core exposes a small facade (`core/src/ffi.rs`, feature `ffi`) through
+**UniFFI** proc-macros — there is no UDL file. Kotlin implements `ByteTransport` on a
+`BluetoothSocket` and then uses:
+
+```kotlin
+val dongle = Dongle.connect(transport, pin)   // TLS-SRP with the label PIN
+dongle.subscribeDefaults()                    // the original app's 17 parameters
+while (true) show(dongle.nextReadings())      // blocking — background thread only
+```
 
 ## Build (intended)
 
+Prerequisites not present in the current dev environment: `rustup` with the Android
+targets, the Android NDK, `cargo-ndk`, and the Android SDK + Gradle.
+
 ```sh
-# 1. Build the Rust core for Android targets
-cargo ndk -t arm64-v8a -t armeabi-v7a -o app/src/main/jniLibs build --release
-# 2. Generate Kotlin bindings
-cargo run --bin uniffi-bindgen generate --language kotlin ...
-# 3. ./gradlew assembleDebug
+cd core
+# 1. Build the Rust core for Android
+cargo ndk -t arm64-v8a -t armeabi-v7a -o ../android/app/src/main/jniLibs \
+    build --release --features ffi
+# 2. Generate the Kotlin bindings (package com.openplug.core, see core/uniffi.toml)
+cargo build --features ffi
+cargo run --features bindgen --bin uniffi-bindgen -- generate \
+    --library target/debug/libopenplug_core.dylib --language kotlin \
+    --out-dir ../android/app/src/main/java
+# 3. cd ../android && ./gradlew assembleDebug
 ```
+
+Step 2 is verified (bindings generate for Kotlin and Swift); steps 1 and 3 are not —
+the Gradle project itself does not exist yet. The generated bindings need the JNA
+dependency (`net.java.dev.jna:jna:<version>@aar`).
 
 ## Permissions
 `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN` (Android 12+), plus `ACCESS_FINE_LOCATION`
 for trip logging. Pairing uses the PIN printed on the dongle label.
 
 ## TODO
-- Wire up the UniFFI facade in the core (`core/src/ffi.rs`).
+- Gradle project, manifest, and a `DongleViewModel` running the read loop.
+- Device picker (bonded devices named `DP_2_1_…`) and PIN entry.
 - Foreground service to keep the connection alive while driving.
-- Replace the demo UI with the real data-object views once the `.proto` is in.

@@ -72,6 +72,7 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 | `dtp` — BLE link framing (`len ‖ 0x44 0x5e ‖ payload`; not used on SPP) | ✅ reversed from vendor libs |
 | `dongle` — app protocol: Subscribe request + DataElement decode | ✅ built from [`live_protocol.md`](research/notes/live_protocol.md) |
 | `link` — read API: connect → authenticate → subscribe → value stream | ✅ end-to-end vs the fake dongle; ⏳ not yet run against real hardware |
+| `ffi` — UniFFI facade for Kotlin/Swift (feature `ffi`) | ✅ tested from Rust; Kotlin + Swift bindings generate |
 
 The platform clients are scaffolded (not yet built): `android/` (Kotlin/Compose
 + RFCOMM/SPP transport) and `ios/` (SwiftUI + Core Bluetooth transport), both thin
