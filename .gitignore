@@ -33,3 +33,9 @@ android/local.properties
 android/app/src/main/jniLibs/
 android/app/src/main/java/com/openplug/core/
 .kotlin/
+
+# Apple build products (the static lib and Swift bindings come from apple/build-core.sh)
+apple/.build/
+apple/lib/
+apple/Sources/OpenPlugCore/OpenPlugCore.swift
+apple/Sources/OpenPlugCoreFFI/include/

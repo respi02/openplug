@@ -1,5 +1,8 @@
 # OpenPlug — iOS app (not written yet; transport understood)
 
+> The shared Core Bluetooth transport and a macOS command-line client live in
+> [`../apple/`](../apple/).
+
 > **Status: no code yet.** The dongle's BLE transport is now fully worked out and
 > verified from macOS with the unmodified Rust core, so the iOS (and macOS) client is
 > ordinary Core Bluetooth work. The dongle is not MFi and needs no bonding.
