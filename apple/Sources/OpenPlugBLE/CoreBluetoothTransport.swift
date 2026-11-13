@@ -47,7 +47,8 @@ public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked S
     private var pendingBells = 0
     private var reading = false
 
-    /// The advertised name of the dongle we connected to (`DP_2_1_<serial>`).
+    /// The name the dongle reported over BLE (ours says `CARe`; the Bluetooth Classic
+    /// side is `DP_2_1_<serial>`).
     public private(set) var peripheralName: String?
 
     public override init() {

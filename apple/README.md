@@ -1,10 +1,10 @@
 # OpenPlug — Apple platforms (macOS / iOS)
 
-> **Status: builds; not yet verified against a dongle.** A Swift package with the Core
-> Bluetooth transport (`OpenPlugBLE`, shared by macOS and iOS) and a macOS
-> command-line client. The transport follows the scheme verified from macOS with a
-> Python bridge (see [`research/notes/ble_transport.md`](../research/notes/ble_transport.md));
-> this Swift implementation itself has not completed a session yet.
+> **Status: works against a real dongle from macOS (2026-11-13).** A Swift package
+> with the Core Bluetooth transport (`OpenPlugBLE`, shared by macOS and iOS) and a
+> macOS command-line client, which authenticates with the label PIN and prints the
+> car's live values over BLE. The scheme is described in
+> [`research/notes/ble_transport.md`](../research/notes/ble_transport.md).
 
 ## Build and run (macOS)
 

@@ -78,8 +78,9 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 
 Platform clients, both thin shells over `core/` via UniFFI: `android/`
 (Kotlin/Compose + RFCOMM/SPP transport) builds and works against a real dongle;
-`ios/` (SwiftUI + Core Bluetooth transport) is not written yet, but its transport is
-now fully understood.
+`apple/` holds the Core Bluetooth transport (shared by macOS and iOS) and a macOS
+command-line client, which also works against a real dongle; the iOS app itself
+(`ios/`) is not written yet.
 
 ## Status & roadmap
 
@@ -100,7 +101,8 @@ now fully understood.
 2. Android transport (RFCOMM/SPP) + a thin Compose UI — the fast path to end-to-end.
 3. ~~Work out the BLE transport~~ — done (2026-11-13): full session and live values
    over BLE from a Mac, with the unmodified core.
-4. iOS/macOS app: a Core Bluetooth transport + SwiftUI shell over the same core.
+4. ~~Core Bluetooth transport~~ — done: the Swift package in `apple/` reads live values
+   from macOS. Next: a SwiftUI app for iOS/macOS on top of it.
 
 ## Build & test (offline, no dongle needed)
 
@@ -139,8 +141,8 @@ In [`research/notes/`](research/notes/):
 ## Contributing
 
 Contributions are welcome — code, testing against real hardware (other cars and
-dongle revisions especially), and documentation. Good first areas: the iOS/macOS Core
-Bluetooth transport and app, labelling more data objects, and trip logging.
+dongle revisions especially), and documentation. Good first areas: the iOS/macOS SwiftUI
+app, labelling more data objects, and trip logging.
 
 To keep the project clean-room and interoperability-only, please:
 

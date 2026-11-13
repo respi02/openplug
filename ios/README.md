@@ -17,7 +17,8 @@ Details and the investigation: [`research/notes/ble_transport.md`](../research/n
 | data characteristic (write + read) | `478a86f3-e47c-4618-9b15-3c7c92cc8184` |
 | doorbell characteristic (notify) | `2efb2dd4-cdc3-11e6-9d9d-cec0c932ce01` |
 
-The dongle advertises as `DP_2_1_<serial>`.
+Find the dongle by its service UUID; its BLE name is not the `DP_2_1_<serial>` of the
+Classic side (ours reports `CARe`).
 
 - **Send:** write each TLS record whole to the data characteristic, with response
   (Core Bluetooth turns writes longer than the MTU into long writes).
