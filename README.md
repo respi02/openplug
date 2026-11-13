@@ -8,9 +8,26 @@ still works** — only the app that drove it is gone. OpenPlug is a clean,
 cross-platform (Android + iOS) reimplementation of the phone↔dongle protocol so
 the dongle you own stays usable.
 
-**This is not affiliated with or endorsed by Škoda, Volkswagen or TEXA.** It
-reimplements an *interface* for interoperability with hardware the user owns; it
-contains no vendor code, firmware, keys or trademarks.
+It talks to the dongle **locally over Bluetooth** — no account, no server, no cloud.
+The only secret needed is the **PIN printed on the dongle's label**, which the owner
+has.
+
+**Not affiliated with or endorsed by Škoda, Volkswagen or TEXA.** It reimplements an
+*interface* for interoperability with hardware the user owns; it contains no vendor
+code, firmware, keys or trademarks.
+
+## What it reads
+
+Decoded from live traffic on our own car (see
+[`research/notes/live_protocol.md`](research/notes/live_protocol.md)):
+
+**odometer / mileage · fuel range · battery voltage · engine RPM · coolant &
+intake temperatures · service intervals (km & days) · VIN** — plus ~30 further live
+data objects the dongle streams.
+
+The app *subscribes* to a signal at a chosen rate and the dongle streams updates;
+OpenPlug reimplements exactly that read path. (The original app also did phone-side
+trip logging and statistics — see the background notes below.)
 
 ## Background
 
@@ -29,10 +46,9 @@ Bluetooth  →  TLS-SRP tunnel        →  protobuf          →  OBD / UDS
                 password = PIN on label)
 ```
 
-No server is involved — everything is local between phone and dongle. The
-authentication secret is the **PIN printed on the dongle's label**, which the
-owner has. The dongle is dual-mode Bluetooth (FCC ID T8RDP15/T8RDP22): Android
-uses the Classic/SPP side, iOS uses the BLE side — so no MFi is required.
+No server is involved — everything is local between phone and dongle. The dongle is
+dual-mode Bluetooth (FCC ID T8RDP15/T8RDP22): Android uses the Classic/SPP side, iOS
+uses the BLE side — so no MFi is required.
 
 ## Architecture
 
@@ -55,8 +71,25 @@ The platform clients are scaffolded (not yet built): `android/` (Kotlin/Compose
 + RFCOMM/SPP transport) and `ios/` (SwiftUI + Core Bluetooth transport), both thin
 shells over `core/` via UniFFI.
 
-**iOS help wanted.** The Android/SPP read path is fully reversed and the live
-protocol is decoded. On iOS the dongle uses BLE, and it's confirmed to advertise a
+## Status & roadmap
+
+**Done & offline-verified**
+
+- The full security layer of the tunnel: SRP-6a → TLS 1.2 TLS-SRP handshake
+  (Encrypt-then-MAC + Extended Master Secret) → AES-128-CBC/HMAC-SHA1 records,
+  anchored to real captured handshake bytes from our own dongle. No C dependency.
+- A generic protobuf codec and the DTP link framing.
+- The application protocol, decoded from a live plaintext capture:
+  `Subscribe{paramId, rate}` → a stream of `DataElement{url, value}`.
+
+**Next**
+
+1. Wire the decoded protocol into the core (`Subscribe` + `DataElement` decode) behind
+   a small read API.
+2. Android transport (RFCOMM/SPP) + a thin Compose UI — the fast path to end-to-end.
+3. iOS transport (BLE) — blocked on the session-open step (below).
+
+**iOS help wanted.** On iOS the dongle uses BLE, and it's confirmed to advertise a
 write/notify GATT pair — but it ignores our (correctly framed, byte-exact)
 ClientHello, so there's a BLE **session-open** step the retired iOS app does that we
 can't observe without an iOS reference. If you have that app on your Apple ID and can
@@ -70,24 +103,25 @@ do static analysis of its build, see
 cd core && cargo test
 ```
 
-All cryptographic layers are verified offline, with no C dependency, anchored to
-real captured handshake bytes from the author's own dongle.
+All cryptographic layers are verified offline, anchored to real captured handshake
+bytes from our own dongle.
 
-## Status
+## Documentation
 
-The entire security layer of the tunnel (SRP-6a → TLS 1.2 TLS-SRP handshake with
-Encrypt-then-MAC and Extended Master Secret → AES-128-CBC/HMAC-SHA1 records) is
-implemented and offline-verified, plus a generic protobuf codec and the DTP link
-framing. The application protocol is now **decoded from a live plaintext capture**
-(`Subscribe{paramId, rate}` → a stream of `DataElement{url, value}`; see
-`research/notes/live_protocol.md`). What remains: wiring the decoded protocol and
-transports into the core, the native UIs, and the iOS BLE session-open (help wanted,
-above).
+In [`research/notes/`](research/notes/):
+
+- [`connect_lite_overview.md`](research/notes/connect_lite_overview.md) · [`dataplug_hardware.md`](research/notes/dataplug_hardware.md) — background on the app and the hardware.
+- [`protocol_spec.md`](research/notes/protocol_spec.md) · [`protocol_findings.md`](research/notes/protocol_findings.md) — the phone↔dongle protocol.
+- [`live_protocol.md`](research/notes/live_protocol.md) — the decrypted application protocol and data-object catalog.
+- [`ble_transport.md`](research/notes/ble_transport.md) — the iOS/BLE findings and the open session-open question.
+- [`tech_stack.md`](research/notes/tech_stack.md) · [`build_plan.md`](research/notes/build_plan.md) — architecture and build plan.
+- [`code_licensing.md`](research/notes/code_licensing.md) — dependency licenses and the clean-room rationale.
+- [`ios_contribution_request.md`](research/notes/ios_contribution_request.md) — how an iOS-side collaborator can help.
 
 ## Legal
 
 OpenPlug is a clean reimplementation of an open protocol stack (SRP-6a RFC 5054,
 TLS 1.2 RFC 5246, protobuf, ISO OBD/UDS) for **interoperability** with hardware
 the user owns — lawful under EU Directive 2009/24/EC Art. 6 and Czech Act
-No. 121/2000 Sb. § 66. See `research/notes/code_licensing.md`. Code is **MIT**
-licensed; dependencies are MIT/Apache-2.0.
+No. 121/2000 Sb. § 66. See [`research/notes/code_licensing.md`](research/notes/code_licensing.md).
+Code is **MIT** licensed; dependencies are MIT/Apache-2.0.
