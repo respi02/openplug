@@ -27,8 +27,9 @@ while (true) show(dongle.nextReadings())      // blocking — background thread 
 
 ## Build (intended)
 
-Prerequisites not present in the current dev environment: `rustup` with the Android
-targets, the Android NDK, `cargo-ndk`, and the Android SDK + Gradle.
+Prerequisites: `rustup` with the Android targets (`aarch64-linux-android`,
+`armv7-linux-androideabi`), the Android NDK (`ANDROID_NDK_HOME`), `cargo-ndk`, and the
+Android SDK + Gradle.
 
 ```sh
 cd core
@@ -43,8 +44,9 @@ cargo run --features bindgen --bin uniffi-bindgen -- generate \
 # 3. cd ../android && ./gradlew assembleDebug
 ```
 
-Step 2 is verified (bindings generate for Kotlin and Swift); steps 1 and 3 are not —
-the Gradle project itself does not exist yet. The generated bindings need the JNA
+Steps 1 and 2 are verified (the core cross-compiles for both ABIs with NDK r29, and
+the bindings generate for Kotlin and Swift); step 3 is not — the Gradle project itself
+does not exist yet. The generated bindings need the JNA
 dependency (`net.java.dev.jna:jna:<version>@aar`).
 
 ## Permissions
