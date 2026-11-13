@@ -41,11 +41,21 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 | `tls_handshake` — master secret, EMS (RFC 7627), ServerKeyExchange parse | ✅ parses real dongle bytes |
 | `tls_client` — TLS-SRP handshake orchestration | ✅ full loopback test |
 | `protobuf` — generic wire codec (decode/encode/inspect) | ✅ |
-| `.proto` schema + OBD/data-object layer | ⏳ needs one live capture |
+| `dtp` — BLE/SPP link framing (`len ‖ 0x44 0x5e ‖ payload`) | ✅ reversed from vendor libs |
+| `.proto` schema + data-object layer | ✅ decoded from a live capture ([notes](research/notes/live_protocol.md)) |
 
 The platform clients are scaffolded (not yet built): `android/` (Kotlin/Compose
 + RFCOMM/SPP transport) and `ios/` (SwiftUI + Core Bluetooth transport), both thin
 shells over `core/` via UniFFI.
+
+**iOS help wanted.** The Android/SPP read path is fully reversed and the live
+protocol is decoded. On iOS the dongle uses BLE, and it's confirmed to advertise a
+write/notify GATT pair — but it ignores our (correctly framed, byte-exact)
+ClientHello, so there's a BLE **session-open** step the retired iOS app does that we
+can't observe without an iOS reference. If you have that app on your Apple ID and can
+do static analysis of its build, see
+[`research/notes/ios_contribution_request.md`](research/notes/ios_contribution_request.md)
+— the one thing we need is the connect→first-TLS-byte sequence.
 
 ## Build & test (offline, no dongle needed)
 
@@ -60,9 +70,12 @@ real captured handshake bytes from the author's own dongle.
 
 The entire security layer of the tunnel (SRP-6a → TLS 1.2 TLS-SRP handshake with
 Encrypt-then-MAC and Extended Master Secret → AES-128-CBC/HMAC-SHA1 records) is
-implemented and offline-verified, plus a generic protobuf codec. What remains
-needs hardware: the real `.proto` message schema (one live plaintext capture)
-and the platform transports + UI.
+implemented and offline-verified, plus a generic protobuf codec and the DTP link
+framing. The application protocol is now **decoded from a live plaintext capture**
+(`Subscribe{paramId, rate}` → a stream of `DataElement{url, value}`; see
+`research/notes/live_protocol.md`). What remains: wiring the decoded protocol and
+transports into the core, the native UIs, and the iOS BLE session-open (help wanted,
+above).
 
 ## Legal
 
