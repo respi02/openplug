@@ -214,7 +214,7 @@ pub fn parse_client_hello(body: &[u8]) -> Option<([u8; 32], Vec<u8>)> {
         let data = &body[p + 4..(p + 4 + el).min(body.len())];
         if et == 0x000c && !data.is_empty() {
             let ilen = data[0] as usize;
-            if 1 + ilen <= data.len() { identity = Some(data[1..1 + ilen].to_vec()); }
+            if ilen < data.len() { identity = Some(data[1..1 + ilen].to_vec()); }
         }
         p += 4 + el;
     }

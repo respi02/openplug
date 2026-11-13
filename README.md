@@ -69,8 +69,9 @@ Shared **Rust core** (`core/`) → platform transport shim → thin native UI
 | `tls_handshake` — master secret, EMS (RFC 7627), ServerKeyExchange parse | ✅ parses real dongle bytes |
 | `tls_client` — TLS-SRP handshake orchestration | ✅ full loopback test |
 | `protobuf` — generic wire codec (decode/encode/inspect) | ✅ |
-| `dtp` — BLE/SPP link framing (`len ‖ 0x44 0x5e ‖ payload`) | ✅ reversed from vendor libs |
+| `dtp` — BLE link framing (`len ‖ 0x44 0x5e ‖ payload`; not used on SPP) | ✅ reversed from vendor libs |
 | `dongle` — app protocol: Subscribe request + DataElement decode | ✅ built from [`live_protocol.md`](research/notes/live_protocol.md) |
+| `link` — read API: connect → authenticate → subscribe → value stream | ✅ end-to-end vs the fake dongle; ⏳ not yet run against real hardware |
 
 The platform clients are scaffolded (not yet built): `android/` (Kotlin/Compose
 + RFCOMM/SPP transport) and `ios/` (SwiftUI + Core Bluetooth transport), both thin
@@ -90,8 +91,8 @@ shells over `core/` via UniFFI.
 
 **Next**
 
-1. Expose a small read API over a live `Session` (connect → authenticate → subscribe
-   → event stream) and a desktop test harness.
+1. First live run of the core against a real dongle, using the desktop harness
+   (below) — the read API and harness exist but have only met the fake dongle so far.
 2. Android transport (RFCOMM/SPP) + a thin Compose UI — the fast path to end-to-end.
 3. iOS transport (BLE) — blocked on the session-open step (below).
 
@@ -112,6 +113,20 @@ cd core && cargo test
 All cryptographic layers are verified offline, anchored to real captured handshake
 bytes from our own dongle.
 
+### Try it end to end (still no dongle needed)
+
+```sh
+cd core
+cargo run --example fake_dongle                       # terminal 1: stand-in dongle on TCP
+OPENPLUG_PIN=1234 cargo run --example live -- --tcp 127.0.0.1:4455   # terminal 2
+```
+
+`fake_dongle` speaks the real stack (TLS-SRP + the framed protobuf) with synthetic
+values. Against real hardware, pair the dongle with a computer and point the harness
+at its serial port: `cargo run --example live -- --serial /dev/cu.<dongle>` (the PIN
+from the label goes in `OPENPLUG_PIN` or is prompted). Add `--raw` to dump every
+message.
+
 ## Documentation
 
 In [`research/notes/`](research/notes/):
@@ -128,8 +143,8 @@ In [`research/notes/`](research/notes/):
 
 Contributions are welcome — code, testing against real hardware, documentation, and
 most of all the **iOS reference** that unblocks the BLE transport (see *iOS help
-wanted* above). Good first areas: wiring the decoded protocol into `core/`, the
-Android SPP transport + UI, and a desktop test harness.
+wanted* above). Good first areas: running the harness against real
+hardware, the Android SPP transport + UI, and labelling more data objects.
 
 To keep the project clean-room and interoperability-only, please:
 

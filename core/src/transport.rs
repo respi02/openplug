@@ -13,6 +13,25 @@ pub trait Transport {
     fn recv(&mut self, buf: &mut [u8]) -> io::Result<usize>;
 }
 
+/// Adapter turning any blocking `Read + Write` stream (a `TcpStream`, a serial
+/// device `File`, …) into a [`Transport`].
+pub struct IoTransport<S: io::Read + io::Write>(pub S);
+
+impl<S: io::Read + io::Write> Transport for IoTransport<S> {
+    fn send(&mut self, data: &[u8]) -> io::Result<()> {
+        self.0.write_all(data)?;
+        self.0.flush()
+    }
+    fn recv(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            match self.0.read(buf) {
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                r => return r,
+            }
+        }
+    }
+}
+
 /// In-memory duplex pipe for offline tests (two linked halves).
 ///
 /// Honors the [`Transport`] contract: `recv` blocks until data arrives and returns

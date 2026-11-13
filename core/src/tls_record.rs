@@ -95,7 +95,7 @@ pub fn seal(k: &DirKeys, seq: u64, ctype: u8, plaintext: &[u8], iv: &[u8; BLOCK]
 pub fn open(k: &DirKeys, seq: u64, ctype: u8, fragment: &[u8]) -> Result<Vec<u8>, RecordError> {
     if fragment.len() < BLOCK + MAC_LEN + BLOCK { return Err(RecordError::Short); }
     let (iv_ct, mac) = fragment.split_at(fragment.len() - MAC_LEN);
-    if (iv_ct.len() - BLOCK) % BLOCK != 0 || iv_ct.len() < 2 * BLOCK { return Err(RecordError::Short); }
+    if !(iv_ct.len() - BLOCK).is_multiple_of(BLOCK) || iv_ct.len() < 2 * BLOCK { return Err(RecordError::Short); }
     // 1) verify MAC over IV||CT (constant time)
     let exp = mac_etm(&k.mac_key, seq, ctype, iv_ct);
     let diff = mac.iter().zip(exp.iter()).fold(0u8, |a, (x, y)| a | (x ^ y));

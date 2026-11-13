@@ -6,7 +6,7 @@
 
 use num_bigint::BigUint;
 
-use crate::content_type::{APPLICATION_DATA, CHANGE_CIPHER_SPEC, HANDSHAKE};
+use crate::content_type::{ALERT, APPLICATION_DATA, CHANGE_CIPHER_SPEC, HANDSHAKE};
 use crate::groups::SrpGroup;
 use crate::srp::Srp;
 use crate::tls_handshake as hs;
@@ -24,6 +24,10 @@ const HT_FINISHED: u8 = 20;
 pub enum HsError {
     #[error("I/O")] Io,
     #[error("connection closed by peer")] Closed,
+    /// The peer sent a TLS alert (RFC 5246 §7.2). During the handshake, a
+    /// `bad_record_mac` (20) right after our Finished means the PIN was wrong.
+    #[error("TLS alert from peer: level {level}, description {description}")]
+    Alert { level: u8, description: u8 },
     #[error("OS random number generator failed")] Rng,
     #[error("unexpected message / format")] Protocol,
     #[error("server did not select cipher 0xC01D")] BadCipher,
@@ -52,8 +56,23 @@ fn read_record<T: Transport>(t: &mut T) -> Result<(u8, Vec<u8>), HsError> {
     Ok((ctype, payload))
 }
 
+/// Reads one cleartext record of type `want`; a cleartext alert becomes [`HsError::Alert`].
+fn read_plain<T: Transport>(t: &mut T, want: u8) -> Result<Vec<u8>, HsError> {
+    let (ct, payload) = read_record(t)?;
+    if ct == ALERT && payload.len() == 2 {
+        return Err(HsError::Alert { level: payload[0], description: payload[1] });
+    }
+    if ct != want { return Err(HsError::Protocol); }
+    Ok(payload)
+}
+
 fn write_record<T: Transport>(t: &mut T, ctype: u8, payload: &[u8]) -> Result<(), HsError> {
-    let mut rec = vec![ctype, 0x03, 0x03, (payload.len() >> 8) as u8, payload.len() as u8];
+    write_record_ver(t, ctype, 0x03, payload)
+}
+
+/// `minor` = record-layer minor version (3 = TLS 1.2; the initial ClientHello uses 1).
+fn write_record_ver<T: Transport>(t: &mut T, ctype: u8, minor: u8, payload: &[u8]) -> Result<(), HsError> {
+    let mut rec = vec![ctype, 0x03, minor, (payload.len() >> 8) as u8, payload.len() as u8];
     rec.extend_from_slice(payload);
     t.send(&rec).map_err(|_| HsError::Io)
 }
@@ -83,13 +102,29 @@ impl<T: Transport> Session<T> {
         write_record(&mut self.t, APPLICATION_DATA, &rec)
     }
 
-    /// Reads one application record and decrypts it.
+    /// Reads one application record and decrypts it. An encrypted `close_notify`
+    /// alert is reported as [`HsError::Closed`], any other alert as [`HsError::Alert`].
     pub fn recv_app(&mut self) -> Result<Vec<u8>, HsError> {
         let (ct, payload) = read_record(&mut self.t)?;
-        if ct != APPLICATION_DATA { return Err(HsError::Protocol); }
-        let pt = open(&self.read_keys, self.read_seq, APPLICATION_DATA, &payload).map_err(HsError::Record)?;
+        if ct != APPLICATION_DATA && ct != ALERT { return Err(HsError::Protocol); }
+        let pt = open(&self.read_keys, self.read_seq, ct, &payload).map_err(HsError::Record)?;
         self.read_seq += 1;
+        if ct == ALERT {
+            return Err(match pt[..] {
+                [_, 0] => HsError::Closed, // close_notify
+                [level, description] => HsError::Alert { level, description },
+                _ => HsError::Protocol,
+            });
+        }
         Ok(pt)
+    }
+
+    /// Sends an encrypted `close_notify` so the peer sees an orderly shutdown.
+    pub fn close(mut self) -> Result<(), HsError> {
+        let iv = random_iv()?;
+        let rec = seal(&self.write_keys, self.write_seq, ALERT, &[1, 0], &iv);
+        self.write_seq += 1;
+        write_record(&mut self.t, ALERT, &rec)
     }
 }
 
@@ -131,7 +166,8 @@ pub fn client_handshake<T: Transport>(mut t: T, cfg: &ClientConfig) -> Result<Se
     // 1) ClientHello
     let ch = hs::hs_wrap(HT_CLIENT_HELLO, &hs::build_client_hello(&cfg.client_random, cfg.identity));
     tr.add(&ch);
-    write_record(&mut t, HANDSHAKE, &ch)?;
+    // The real app's first record carries version 0x0301 (mbedTLS default); match it.
+    write_record_ver(&mut t, HANDSHAKE, 0x01, &ch)?;
 
     // 2) read handshake messages (SH, SKE, SHD) — buffered across records
     let mut hbuf: Vec<u8> = Vec::new();
@@ -156,8 +192,7 @@ pub fn client_handshake<T: Transport>(mut t: T, cfg: &ClientConfig) -> Result<Se
             hbuf.drain(..consumed);
         }
         if server_hello.is_some() && srp_params.is_some() && hbuf.is_empty() { break; }
-        let (ct, payload) = read_record(&mut t)?;
-        if ct != HANDSHAKE { return Err(HsError::Protocol); }
+        let payload = read_plain(&mut t, HANDSHAKE)?;
         hbuf.extend_from_slice(&payload);
     }
     let sh = server_hello.ok_or(HsError::Protocol)?;
@@ -192,8 +227,7 @@ pub fn client_handshake<T: Transport>(mut t: T, cfg: &ClientConfig) -> Result<Se
     write_record(&mut t, HANDSHAKE, &sealed)?;
 
     // 7) server ChangeCipherSpec + Finished
-    let (ct1, _) = read_record(&mut t)?;
-    if ct1 != CHANGE_CIPHER_SPEC { return Err(HsError::Protocol); }
+    read_plain(&mut t, CHANGE_CIPHER_SPEC)?;
     let (ct2, sfin_rec) = read_record(&mut t)?;
     if ct2 != HANDSHAKE { return Err(HsError::Protocol); }
     let sfin = open(&server_keys, 0, HANDSHAKE, &sfin_rec).map_err(HsError::Record)?;

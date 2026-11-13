@@ -25,10 +25,10 @@ const SUB_PARAM: u32 = 2;
 const SUB_RATE: u32 = 3;
 
 // DataElement wire tags (field<<3 | wiretype)
-const TAG_URL: u8 = (1 << 3) | 0; // 0x08  field 1, varint
-const TAG_STATE: u8 = (2 << 3) | 0; // 0x10  field 2, varint
+const TAG_URL: u8 = 1 << 3; // 0x08  field 1, varint
+const TAG_STATE: u8 = 2 << 3; // 0x10  field 2, varint
 const TAG_VALUE: u8 = (5 << 3) | 5; // 0x2d  field 5, fixed32
-const TAG_PRECISION: u8 = (10 << 3) | 0; // 0x50  field 10, varint
+const TAG_PRECISION: u8 = 10 << 3; // 0x50  field 10, varint
 
 /// DataElement state values seen on the wire.
 pub mod state {
@@ -240,4 +240,93 @@ fn try_element(b: &[u8], start: usize) -> Option<(DataElement, usize)> {
         },
         j,
     ))
+}
+
+// ---- the subscription set and signal catalog (from live_protocol.md) ----
+
+/// The `(paramId, rateMs)` subscriptions the original app opens, in its order.
+pub const APP_SUBSCRIPTIONS: [(u32, u32); 17] = [
+    (14, 1000), (23, 1000), (16, 10000), (11, 10000), (1, 10000), (7, 10000),
+    (4, 10000), (8, 10000), (20, 10000), (44, 10000), (6, 10000), (9, 10000),
+    (28, 1000), (19, 10000), (17, 1000), (30, 1000), (34, 1000),
+];
+
+/// A labelled data object: display name, unit, and the factor the raw value is
+/// multiplied by to get that unit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Signal {
+    pub name: &'static str,
+    pub unit: &'static str,
+    pub scale: f32,
+}
+
+/// Looks up the signals whose meaning is confirmed. Unlabelled urls return None.
+pub fn signal(url: u32) -> Option<Signal> {
+    let (name, unit, scale) = match url {
+        0x0002_0004 => ("odometer", "km", 1.0),
+        0x0002_0005 => ("range", "km", 1.0),
+        0x0004_000e => ("engine speed", "rpm", 100.0),
+        0x0005_0001 => ("battery voltage", "V", 1.0),
+        0x0007_0009 => ("service due", "days", 1.0),
+        0x0007_0012 => ("service due", "km", 1.0),
+        _ => return None,
+    };
+    Some(Signal { name, unit, scale })
+}
+
+// ---- the dongle's side (for tests and the fake dongle; mirrors the observed shape) ----
+
+/// A decoded request, as far as the protocol is understood.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Request {
+    Subscribe { param_id: u32, rate_ms: u32, txid: u32 },
+    /// Any other command field (the getters), with its field number.
+    Other { field: u32, txid: u32 },
+}
+
+/// Parses a `_TDongleReq` message body (length prefix already removed).
+pub fn parse_request(msg: &[u8]) -> Option<Request> {
+    use crate::protobuf::{decode, Value};
+    let fields = decode(msg).ok()?;
+    let txid = fields.iter().find_map(|f| match (f.number, &f.value) {
+        (F_TRANSACTION_ID, Value::Varint(v)) => Some(*v as u32),
+        _ => None,
+    })?;
+    let cmd = fields.iter().find(|f| f.number != F_TRANSACTION_ID)?;
+    if let (F_SUBSCRIBE, Value::Bytes(sub)) = (cmd.number, &cmd.value) {
+        let sub = decode(sub).ok()?;
+        let get = |n: u32| sub.iter().find_map(|f| match (f.number, &f.value) {
+            (num, Value::Varint(v)) if num == n => Some(*v as u32),
+            _ => None,
+        });
+        return Some(Request::Subscribe { param_id: get(SUB_PARAM)?, rate_ms: get(SUB_RATE)?, txid });
+    }
+    Some(Request::Other { field: cmd.number, txid })
+}
+
+/// Builds a framed data response in the shape the dongle uses:
+/// `{ seq(1), len(2), inner(3) }` where `inner` is itself length-prefixed and holds
+/// `{ 15: { 1: { paramId(1), repeated DataElement(2) } }, txid(255) }`.
+pub fn build_response(seq: u32, param_id: u32, txid: u32, elements: &[DataElement]) -> Vec<u8> {
+    let mut group = Builder::default().varint(1, param_id as u64);
+    for e in elements {
+        let mut el = Builder::default()
+            .varint(1, e.url as u64)
+            .varint(2, e.state as u64)
+            .fixed32(5, e.value.to_bits());
+        if let Some(p) = e.precision {
+            el = el.varint(10, p as u64);
+        }
+        group = group.message(2, el);
+    }
+    let inner = Builder::default()
+        .message(15, Builder::default().message(1, group))
+        .varint(F_TRANSACTION_ID, txid as u64)
+        .build();
+    let inner = frame(&inner);
+    let outer = Builder::default()
+        .varint(1, seq as u64)
+        .varint(2, inner.len() as u64)
+        .bytes(3, &inner);
+    frame(&outer.build())
 }

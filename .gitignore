@@ -10,7 +10,7 @@ captures/
 core/target/
 target/
 
-# Citlivé — nepublikovat ve veřejném repu (viz research/notes/code_licensing.md)
+# Sensitive — never publish in the public repo (see research/notes/code_licensing.md)
 research/notes/killswitch_analysis.md
 tools/swapdex.py
 tools/frida_dump_plaintext.js

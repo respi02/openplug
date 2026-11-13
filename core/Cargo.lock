@@ -162,6 +162,7 @@ dependencies = [
  "getrandom",
  "hex",
  "hmac",
+ "libc",
  "num-bigint",
  "num-traits",
  "sha1",

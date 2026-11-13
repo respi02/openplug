@@ -13,13 +13,15 @@
 //! [`tls_prf`], [`tls_record`] (Encrypt-then-MAC), [`tls_handshake`],
 //! [`tls_client`] (full TLS-SRP handshake), [`protobuf`] (generic codec),
 //! [`dtp`] (link framing) and [`dongle`] (Subscribe request + DataElement decode,
-//! from the decoded live protocol in research/notes/live_protocol.md).
-//! Remaining: a read API over a live session, transactions beyond Subscribe,
-//! the raw OBD/UDS PDU path, and the UniFFI facade.
+//! from the decoded live protocol in research/notes/live_protocol.md) and [`link`]
+//! (the read API: connect → authenticate → subscribe → stream of values).
+//! Remaining: transactions beyond Subscribe, the raw OBD/UDS PDU path, and the
+//! UniFFI facade.
 
 pub mod dongle;
 pub mod dtp;
 pub mod groups;
+pub mod link;
 pub mod protobuf;
 pub mod srp;
 pub mod tls_record;

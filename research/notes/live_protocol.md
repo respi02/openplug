@@ -74,6 +74,23 @@ than relying on container parsing (the `f253` block is non-protobuf and defeats 
 strict parser). `captures/frida/extract_objects.py` does this; it recovered 39
 distinct objects from the session.
 
+### Observed container shape and session start
+
+Decoding a real 362 B response more closely, the outer message is
+`{ seq(1), len(2), inner(3) }` where `inner` is again `varint(len) ‖ protobuf` and holds
+`{ 15: { 1: { paramId(1), repeated DataElement(2) } }, 253: …, 255: txid }` — i.e. each
+data response names the subscribed `paramId` it belongs to, followed by that
+parameter's group of elements (e.g. `paramId 28` → several `0x0004_00xx` objects).
+
+The app's request sequence before streaming (from the same capture) is: `f15{sel=22}`,
+then empty getters `f22`, `f4`, `f1`, `f4`, `f5`…, then 17 subscriptions in this order
+(`paramId@rateMs`): 14@1000, 23@1000, 16@10000, 11@10000, 1@10000, 7@10000, 4@10000,
+8@10000, 20@10000, 44@10000, 6@10000, 9@10000, 28@1000, 19@10000, 17@1000, 30@1000,
+34@1000. All requests are ≤ 14 B, which matches the encrypted SPP pairing capture:
+right after the TLS Finished the phone sends only minimum-size records (57 B on the
+wire), so no separate large authentication exchange follows the TLS-SRP handshake.
+(The latter is inferred from record sizes, not from decrypted content.)
+
 ## Data-object catalog (url → signal)
 
 `url` is `category<<16 | index`. Confirmed against the app UI (engine idling):

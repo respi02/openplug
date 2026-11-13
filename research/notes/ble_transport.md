@@ -70,7 +70,13 @@ From `libdongle.so` (`dtp_add_header`, `dtp_from_net`, `dtp_needed_bytes`, `dtp_
 - `DTPStream::send` hands header+payload to the lower stream in a single write, so on
   BLE one DTP frame goes out as one GATT write (fits the 185 B MTU for the handshake).
 
-Stack on the wire: `protobuf → TLS(SecureTunnel) → DTPStream(this framing) → BLE/SPP`.
+Stack on the wire (BLE): `protobuf → TLS(SecureTunnel) → DTPStream(this framing) → BLE`.
+
+**Correction (2026-11-13): DTP is not used on Classic SPP.** In our SPP capture the
+RFCOMM payload starts directly with the TLS record (`16 03 01 00 54 …`, 89 B = the
+5-byte record header + the 84-byte ClientHello) — there is no `len ‖ 44 5e` header, and
+every later payload is likewise a bare TLS record. So on Android/SPP the core runs TLS
+straight on the serial channel; `DtpTransport` is for the BLE path only.
 
 Implemented in the core as `openplug_core::dtp` (`frame`, `Deframer`,
 `DtpTransport<T>`), tested in `core/tests/dtp.rs`. The 83 B ClientHello frames to

@@ -11,7 +11,15 @@ protocol). Bindings for Android/iOS via UniFFI will be added later.
 - ✅ `tls_handshake` — master secret, EMS, ServerKeyExchange parser (real dongle bytes), ClientHello/ClientKeyExchange, Finished
 - ✅ `tls_client` — TLS-SRP handshake orchestration (client + server, full loopback)
 - ✅ `protobuf` — generic wire codec (decode/encode/inspect)
-- ⏳ `.proto` schema (`_TDongleReq/Rsp`), OBD/UDS PDU, data objects — needs one live plaintext capture
+- ✅ `dtp` — BLE link framing (not used on SPP)
+- ✅ `dongle` — app protocol: Subscribe request, DataElement decode, signal catalog
+- ✅ `link` — read API: connect → authenticate → subscribe → value stream
+- ⏳ first run against real hardware; transactions beyond Subscribe; OBD/UDS PDU; UniFFI facade
+
+## Examples
+- `live` — desktop harness: `--serial DEVICE` (paired dongle) or `--tcp HOST:PORT`
+- `fake_dongle` — stand-in dongle on TCP with synthetic values
+- `clienthello` — emits the byte-exact ClientHello record (for BLE probing)
 
 ## Test (offline, no dongle)
 ```sh
