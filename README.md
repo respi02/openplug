@@ -1,3 +1,5 @@
+<img src="docs/logo.svg" width="96" alt="OpenPlug logo" align="right">
+
 # OpenPlug
 
 > Open-source replacement for the **ŠKODA Connect LITE** app, talking to the

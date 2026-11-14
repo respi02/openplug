@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- The OpenPlug mark, an OBD connector; same geometry as docs/logo.svg. -->
+    <path android:pathData="M25.0,38.05L83.0,38.05L75.27,69.95L32.73,69.95Z" android:strokeColor="#FFFFFFFF" android:strokeWidth="5.41"
+        android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M35.15,48.01a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0 M45.78,48.01a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0 M56.42,48.01a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0 M67.05,48.01a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0 M40.47,59.99a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0 M61.73,59.99a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0" android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M51.1,59.99a2.9,2.9 0 1,0 5.8,0a2.9,2.9 0 1,0 -5.8,0" android:fillColor="#FF7CC7E8" />
+</vector>
