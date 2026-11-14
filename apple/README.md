@@ -16,6 +16,7 @@
 | `Sources/OpenPlugBLE/` | the Core Bluetooth transport, shared by iOS and macOS |
 | `Sources/openplug-cli/` | macOS command-line client |
 | `Sources/openplug-fake-ble/` | a BLE stand-in for the dongle on a Mac, for testing the iOS app without the car |
+| `LiveActivity/`, `Shared/` | the Live Activity's widget extension and the type it shares with the app |
 | `App/` | the SwiftUI app: PIN entry (kept in the Keychain), live values, trips and refuels |
 | `project.yml` | XcodeGen spec for the app's Xcode project |
 | `build-core.sh` | builds the Rust core into `OpenPlugCoreFFI.xcframework` + Swift bindings |
@@ -100,6 +101,19 @@ cd apple && swift run openplug-fake-ble         # advertise it over BLE from the
 ```
 
 Stopping `openplug-fake-ble` looks to the phone like the ignition going off.
+
+## Live Activity
+
+The trip in progress shows on the lock screen and in the Dynamic Island: distance,
+speed, time driving, consumption. `App/LiveTrip.swift` starts, updates (at most every
+3 s) and ends it; the widget extension in `LiveActivity/` draws it; both share
+`Shared/TripAttributes.swift`.
+
+iOS lets an app *start* a Live Activity only while it is in the foreground (starting
+one from the background needs a push server, which OpenPlug does not have). A trip that
+begins while the app is in the background — the usual case — therefore gets its Live
+Activity when the app is next opened during the drive; from then on it updates in the
+background. Seen in the simulator's Dynamic Island; not yet on a phone or a real drive.
 
 ## Routes and maps
 

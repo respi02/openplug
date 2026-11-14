@@ -12,10 +12,13 @@ targets:
   OpenPlug:
     type: application
     supportedDestinations: [iOS, macOS]
-    sources: [App]
+    sources: [App, Shared]
     dependencies:
       - package: OpenPlug
         product: OpenPlugBLE
+      # the Live Activity's widget extension, on iOS only
+      - target: OpenPlugLive
+        platformFilter: iOS
     info:
       path: App/Info.plist
       properties:
@@ -32,6 +35,9 @@ targets:
         NSLocationUsageDescription: OpenPlug records the route of your trips and where the car is parked. The position stays on this device.
         UIBackgroundModes: [bluetooth-central, location]
         # show Documents (the value recordings) in the Files app
+        # the trip in progress as a Live Activity, updated about every 3 s
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
@@ -43,4 +49,25 @@ targets:
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         # the core is built for arm64 only
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+  # Widget extension that draws the Live Activity (lock screen, Dynamic Island).
+  OpenPlugLive:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: [LiveActivity, Shared]
+    info:
+      path: LiveActivity/Info.plist
+      properties:
+        CFBundleDisplayName: OpenPlug
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.openplug.app.live
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64

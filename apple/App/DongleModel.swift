@@ -225,6 +225,16 @@ final class DongleModel: ObservableObject {
     /// Whether a PIN has been entered (the app is set up).
     var hasPin: Bool { !(Keychain.pin ?? "").isEmpty }
 
+    /// The trip in progress on the lock screen and in the Dynamic Island (iOS).
+    private func syncLiveActivity() {
+        #if os(iOS)
+        var connected = false
+        if case .connected = state { connected = true }
+        let speed = readings.first { $0.url == 0x020000 && $0.available }.map { Double($0.value) }
+        LiveTrip.shared.update(trip: journal.active, running: connected && journal.tripRunning, speedKmh: speed)
+        #endif
+    }
+
     // MARK: routes (GPS)
 
     private let location = LocationFeed()
@@ -323,6 +333,7 @@ final class DongleModel: ObservableObject {
         case .readings(let r): readings = r
         case .journal(let j): journal = j
         }
+        syncLiveActivity()
         #if DEBUG
         trace()
         #endif
@@ -334,6 +345,7 @@ final class DongleModel: ObservableObject {
         recording = nil
         state = end
         syncLocation()
+        syncLiveActivity()
         if case .failed = end { wantedTarget = nil } // retrying cannot help
         if let trips { journal = Self.snapshot(trips) }
         #if DEBUG

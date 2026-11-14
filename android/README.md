@@ -86,6 +86,15 @@ app.
   ones), so without it a resume from a reboot or from the dongle being seen can be
   refused; the sticky restart worked without it on our phone.
 
+## Live notification
+
+The service's ongoing notification follows the session: the trip in progress
+("Trip · 12.4 km", "62 km/h · 18 min · 6.1 l/100 km"), updated every 3 s, otherwise what
+the session is waiting for. On Android 16+ (API 36) it asks to be promoted to a
+**Live Update** (status-bar chip with the distance, lock screen) and declares
+`POST_PROMOTED_NOTIFICATIONS`; that path is untested, as our phone runs Android 14,
+where it is an ordinary ongoing notification.
+
 ## Routes and maps
 
 With **Record routes** on (Settings; off by default), the app takes the phone's

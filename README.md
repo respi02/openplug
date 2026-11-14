@@ -71,7 +71,8 @@ Everything below has run against a real dongle in a real car (2026-11-13).
 What OpenPlug does today: **live values**, the car's **last known state** while it is
 away (fuel, range, odometer, service), a **trip log** (distance, time, speeds, fuel)
 with **refuel detection** and CSV export, optionally with the **route on a map** and
-the **parking place** (phone GPS, kept on the device), automatic reconnection whenever the dongle is in
+the **parking place** (phone GPS, kept on the device), the trip in progress as a
+**Live Activity** on iOS and a live notification on Android, automatic reconnection whenever the dongle is in
 reach (also from the background, after the system ended the app, and after a reboot),
 and recording in the background. The trip log and background recording are new and
 have so far only been exercised against stand-ins for the dongle, not on a real drive.
@@ -160,8 +161,6 @@ the link — stop it while using OpenPlug.
 
 1. Prove the trip log, routes and background behaviour on real drives; then trip
    notes and types, and addresses for trip ends.
-   - iOS **Live Activities**: the trip in progress on the lock screen and in the
-     Dynamic Island.
 2. More of the protocol: warning lights, AdBlue, token authentication.
 3. Polish on both apps: reconnecting, background behaviour, distribution.
 4. More cars: the catalog so far reflects one vehicle.

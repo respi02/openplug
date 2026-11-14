@@ -24,6 +24,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 16+: lets the trip notification be promoted to a Live Update. -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <!-- Stay awake while connected; ask to be exempt from battery optimization so the
          session can come back after the system killed it, and resume after a reboot. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
