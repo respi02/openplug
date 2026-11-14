@@ -43,6 +43,12 @@ private struct LiveTab: View {
 private struct SetupView: View {
     @EnvironmentObject private var model: DongleModel
     @State private var pin = Keychain.pin ?? ""
+    // on by default in debug builds, which are the ones taken on test drives
+    #if DEBUG
+    @AppStorage("recordValues") private var record = true
+    #else
+    @AppStorage("recordValues") private var record = false
+    #endif
     #if DEBUG
     @State private var useDemo = false
     @AppStorage("demoHost") private var demoHost = "127.0.0.1"
@@ -89,11 +95,17 @@ private struct SetupView: View {
             }
             .disabled(model.isActive)
             Section {
+                Toggle("Record values", isOn: $record)
+            } footer: {
+                Text("Saves what the dongle sends (no position, no VIN) to a file in Files › OpenPlug › Recordings, to replay the drive later.")
+            }
+            .disabled(model.isActive)
+            Section {
                 if !model.isActive {
                     Button("Connect") {
                         let trimmed = pin.trimmingCharacters(in: .whitespacesAndNewlines)
                         Keychain.pin = trimmed
-                        model.connect(to: target, pin: trimmed)
+                        model.connect(to: target, pin: trimmed, record: record)
                     }
                     .disabled(pin.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
@@ -125,6 +137,10 @@ private struct LiveView: View {
 
     var body: some View {
         List {
+            if let file = model.recording {
+                Label("Recording to \((file as NSString).lastPathComponent)", systemImage: "record.circle")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             if model.readings.isEmpty {
                 Text("Waiting for the first values…").foregroundStyle(.secondary)
             }

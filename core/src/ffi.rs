@@ -152,6 +152,18 @@ impl Dongle {
     }
 }
 
+fn elements(readings: &[Reading]) -> Vec<dongle::DataElement> {
+    readings
+        .iter()
+        .map(|r| dongle::DataElement {
+            url: r.url,
+            state: if r.available { dongle::state::OK } else { dongle::state::NODATA },
+            value: r.value,
+            precision: Some(r.precision),
+        })
+        .collect()
+}
+
 // ---- trip and refuel journal ----
 
 use crate::journal::{Journal, Refuel, Totals, Trip};
@@ -253,16 +265,7 @@ impl TripJournal {
     }
 
     pub fn on_readings(&self, readings: Vec<Reading>, now_ms: u64) {
-        let elements: Vec<dongle::DataElement> = readings
-            .iter()
-            .map(|r| dongle::DataElement {
-                url: r.url,
-                state: if r.available { dongle::state::OK } else { dongle::state::NODATA },
-                value: r.value,
-                precision: Some(r.precision),
-            })
-            .collect();
-        self.inner.lock().unwrap().on_values(&elements, now_ms);
+        self.inner.lock().unwrap().on_values(&elements(&readings), now_ms);
     }
 
     /// Finishes a paused trip whose grace period has passed; returns it if so.
@@ -287,5 +290,62 @@ impl TripJournal {
 
     pub fn totals(&self) -> JournalTotals {
         self.inner.lock().unwrap().totals().into()
+    }
+}
+
+// ---- recording the value stream ----
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum RecordingError {
+    #[error("the recording could not be written: {0}")]
+    Io(String),
+}
+
+/// Records the value stream to a file (JSON Lines, see [`crate::recording`]) so a
+/// drive can be replayed later at the desk. Feed it the same calls as the
+/// [`TripJournal`]. Writing is best effort: after a failed write (disk full) the
+/// recording stops and [`ValueRecorder::failed`] turns true.
+#[derive(uniffi::Object)]
+pub struct ValueRecorder {
+    inner: Mutex<Option<crate::recording::Recorder>>,
+}
+
+impl ValueRecorder {
+    fn with(&self, f: impl FnOnce(&mut crate::recording::Recorder) -> std::io::Result<()>) {
+        let mut guard = self.inner.lock().unwrap();
+        if let Some(rec) = guard.as_mut() {
+            if f(rec).is_err() {
+                *guard = None;
+            }
+        }
+    }
+}
+
+#[uniffi::export]
+impl ValueRecorder {
+    /// Opens `path` for appending (creating it and its directory if needed).
+    #[uniffi::constructor]
+    pub fn open(path: String, now_ms: u64) -> Result<Arc<Self>, RecordingError> {
+        let rec = crate::recording::Recorder::open(std::path::Path::new(&path), now_ms)
+            .map_err(|e| RecordingError::Io(e.to_string()))?;
+        Ok(Arc::new(Self { inner: Mutex::new(Some(rec)) }))
+    }
+
+    pub fn on_connected(&self, now_ms: u64) {
+        self.with(|r| r.connected(now_ms));
+    }
+
+    pub fn on_disconnected(&self, now_ms: u64) {
+        self.with(|r| r.disconnected(now_ms));
+    }
+
+    pub fn on_readings(&self, readings: Vec<Reading>, now_ms: u64) {
+        self.with(|r| r.values(&elements(&readings), now_ms));
+    }
+
+    /// True once a write has failed; nothing more is recorded.
+    pub fn failed(&self) -> bool {
+        self.inner.lock().unwrap().is_none()
     }
 }

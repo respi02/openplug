@@ -33,7 +33,10 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
 1. **Trip logging** — implemented in `core/src/journal.rs` and both apps, with
    automatic reconnection and background recording; tested against the fake dongle.
    Remaining: prove it on real drives (see `original_app_features.md` for what the
-   original app did beyond this).
+   original app did beyond this). For that, both apps can **record** the value
+   stream (`core/src/recording.rs`); a recorded drive replays into the journal
+   (`examples/replay`) or out of the fake dongle (`fake_dongle --replay`), so the trip
+   rules can be checked and tuned at the desk against real data.
 2. **Protocol coverage.**
    - Decode the groups the app subscribes to that we do not label yet: 9 (service
      interval status), 11 (warning lights), 17 (boost pressure), 34 (catalyst

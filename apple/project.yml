@@ -28,6 +28,9 @@ targets:
         NSLocalNetworkUsageDescription: Debug builds can connect to a fake dongle running on a computer on your network.
         # keep the BLE session (and trip recording) alive in the background
         UIBackgroundModes: [bluetooth-central]
+        # show Documents (the value recordings) in the Files app
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         LSApplicationCategoryType: public.app-category.utilities
     settings:

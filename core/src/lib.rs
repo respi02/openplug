@@ -15,7 +15,8 @@
 //! [`dtp`] (a vendor framing, unused on the wire) and [`dongle`] (Subscribe request + DataElement decode,
 //! from the decoded live protocol in research/notes/live_protocol.md) and [`link`]
 //! (the read API: connect → authenticate → subscribe → stream of values).
-//! [`journal`] turns the value stream into a log of trips and refuels.
+//! [`journal`] turns the value stream into a log of trips and refuels;
+//! [`recording`] records that stream to a file and replays it.
 //! With the `ffi` feature, [`ffi`] exposes that read API to Kotlin/Swift via UniFFI.
 //! Remaining: transactions beyond Subscribe and the raw OBD/UDS PDU path.
 
@@ -30,6 +31,7 @@ pub mod groups;
 pub mod journal;
 pub mod link;
 pub mod protobuf;
+pub mod recording;
 pub mod srp;
 pub mod tls_record;
 pub mod tls_prf;

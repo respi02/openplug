@@ -52,8 +52,25 @@ OPENPLUG_PIN=<PIN from the label> .build/debug/openplug-cli --seconds 30
 
 In a debug build choose **Fake dongle (TCP 127.0.0.1:4455)**, PIN `1234`. This works
 from the Mac app and from the iOS simulator. For scripted checks a debug build also
-accepts `--autoconnect bluetooth|demo` with the PIN in `OPENPLUG_PIN` and traces the
-session to stdout.
+accepts `--autoconnect bluetooth|demo [--record]` with the PIN in `OPENPLUG_PIN` and
+traces the session to stdout (`OPENPLUG_JOURNAL` and `OPENPLUG_RECORDINGS` override
+where the trip log and recordings go). The fake dongle has a trip log of its own
+(`journal-demo.json`), so its synthetic values never mix with the car's.
+
+## Recordings
+
+With **Record values** on (default in debug builds), each session is written to
+`drive-<date>-<time>.jsonl` in the app's Documents: on an iPhone in the Files app
+under *On My iPhone › OpenPlug › Recordings* (AirDrop it to the Mac from there), on a
+Mac in `~/Documents/OpenPlug Recordings`. From a Mac with the iPhone attached:
+
+```sh
+xcrun devicectl device copy from --device <id> --domain-type appDataContainer \
+    --domain-identifier org.openplug.app --source Documents/Recordings --destination recordings
+```
+
+Replay one into the trip log with `cargo run --example replay -- FILE`, or play it to
+the app with `cargo run --example fake_dongle -- --replay FILE` (see the main README).
 
 ## The BLE transport
 

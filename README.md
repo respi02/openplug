@@ -96,6 +96,7 @@ BluetoothSppTransport             CoreBluetoothTransport
 | `protobuf` | schema-less protobuf wire codec |
 | `dongle` | the application protocol: Subscribe request, DataElement decode, signal catalog |
 | `journal` | trips and refuels from the value stream (start, pause, resume, finish; JSON file) |
+| `recording` | records the value stream to a file and replays it into a journal |
 | `link` | the read API: connect → authenticate → subscribe → stream of values |
 | `ffi` | the UniFFI facade for Kotlin and Swift (feature `ffi`) |
 | `transport` | the byte-channel trait, an adapter for any `Read + Write`, a test pipe |
@@ -117,6 +118,22 @@ cd core
 cargo run --example fake_dongle                                      # terminal 1
 OPENPLUG_PIN=1234 cargo run --example live -- --tcp 127.0.0.1:4455   # terminal 2
 ```
+
+**Record a drive, replay it at the desk.** With **Record values** switched on (the
+default in debug builds), both apps write each session's value stream to a file
+(JSON Lines: link up/down and every message with its time; no position, no VIN —
+format in [`core/src/recording.rs`](core/src/recording.rs)). `live --record FILE`
+does the same from a computer. A recording can then be
+
+```sh
+cd core
+cargo run --example replay -- drive.jsonl --finish --signals   # replayed into the trip log
+cargo run --example fake_dongle -- --replay drive.jsonl        # served to an app, in real time
+```
+
+The first prints what the trip log makes of the drive (trip started, paused,
+resumed, finished, refuels) and a summary of every signal; the second plays the drive
+back to a connected app, including the link dropping and coming back.
 
 **Android** (details in [`android/README.md`](android/README.md)):
 

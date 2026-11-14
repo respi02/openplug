@@ -49,7 +49,6 @@ class DongleService : Service() {
         }
 
         thread(name = "openplug-session") {
-            Session.openJournal(applicationContext)
             Session.run()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()

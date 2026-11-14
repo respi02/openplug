@@ -47,7 +47,22 @@ the UniFFI-generated `com/openplug/core/openplug_core.kt`.
 adb reverse tcp:4455 tcp:4455
 ```
 
-Then in a debug build choose **Fake dongle (TCP 127.0.0.1:4455)**, PIN `1234`.
+Then in a debug build choose **Fake dongle (TCP 127.0.0.1:4455)**, PIN `1234`. The
+fake dongle has a trip log of its own (`files/journal-demo.json`), so its synthetic
+values never mix with the car's.
+
+## Recordings
+
+With **Record values** on (default in debug builds), each session is written to
+`Android/data/com.openplug/files/recordings/drive-<date>-<time>.jsonl`, which needs no
+storage permission:
+
+```sh
+adb pull /sdcard/Android/data/com.openplug/files/recordings
+```
+
+Replay one into the trip log with `cargo run --example replay -- FILE`, or play it to
+the app with `cargo run --example fake_dongle -- --replay FILE` (see the main README).
 
 ## Permissions
 `BLUETOOTH_CONNECT` (Android 12+): the app talks to an already bonded dongle, so it

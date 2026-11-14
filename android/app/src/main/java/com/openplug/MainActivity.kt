@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -81,6 +82,9 @@ private data class Target(val id: String, val label: String, val open: () -> Don
 
 private const val PREFS = "openplug"
 
+/** The debug-only fake dongle's target id (it has a trip log of its own). */
+private const val FAKE_ID = "tcp"
+
 /** Bluetooth to reach the dongle; notifications to show the session while it runs. */
 private fun wantedPermissions(): Array<String> = buildList {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -99,7 +103,7 @@ private fun targets(context: Context): List<Target> {
     val dongles = bonded
         .sortedByDescending { it.name?.startsWith("DP_") == true } // DataPlugs first
         .map { d -> Target(d.address, d.name ?: d.address) { BluetoothSppTransport(d) } }
-    val fake = Target("tcp", "Fake dongle (TCP 127.0.0.1:4455)") { TcpTransport("127.0.0.1", 4455) }
+    val fake = Target(FAKE_ID, "Fake dongle (TCP 127.0.0.1:4455)") { TcpTransport("127.0.0.1", 4455) }
     return if (BuildConfig.DEBUG) dongles + fake else dongles
 }
 
@@ -134,14 +138,16 @@ private fun LiveTab() {
         LinkState.Connected -> Live(readings, onDisconnect = Session::stop)
         else -> Setup(
             state,
-            onConnect = { open, pin -> Session.start(context.applicationContext, open, pin) },
+            onConnect = { target, pin, record ->
+                Session.start(context.applicationContext, target.open, pin, record, demo = target.id == FAKE_ID)
+            },
             onStop = Session::stop,
         )
     }
 }
 
 @Composable
-private fun Setup(state: LinkState, onConnect: (() -> DongleTransport, String) -> Unit, onStop: () -> Unit) {
+private fun Setup(state: LinkState, onConnect: (Target, String, Boolean) -> Unit, onStop: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     var granted by remember { mutableStateOf(hasBluetoothPermission(context)) }
@@ -150,6 +156,8 @@ private fun Setup(state: LinkState, onConnect: (() -> DongleTransport, String) -
     }
     var pin by remember { mutableStateOf(prefs.getString("pin", "") ?: "") }
     var selected by remember { mutableStateOf(prefs.getString("target", null)) }
+    // on by default in debug builds, which are the ones taken on test drives
+    var record by remember { mutableStateOf(prefs.getBoolean("record", BuildConfig.DEBUG)) }
     val busy = state is LinkState.Connecting || state is LinkState.Waiting
 
     if (!granted) {
@@ -190,6 +198,20 @@ private fun Setup(state: LinkState, onConnect: (() -> DongleTransport, String) -
         ),
         modifier = Modifier.fillMaxWidth(),
     )
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Record values")
+            Text(
+                "Saves what the dongle sends (no position, no VIN) to a file, to replay the drive later.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Switch(checked = record, enabled = !busy, onCheckedChange = {
+            record = it
+            prefs.edit().putBoolean("record", it).apply()
+        })
+    }
     Spacer(Modifier.height(12.dp))
     val target = all.firstOrNull { it.id == selected }
     if (busy) {
@@ -210,7 +232,7 @@ private fun Setup(state: LinkState, onConnect: (() -> DongleTransport, String) -
             onClick = {
                 prefs.edit().putString("pin", pin).putString("target", selected).apply()
                 askPermissions.launch(wantedPermissions()) // notifications, if not asked yet
-                onConnect(target!!.open, pin)
+                onConnect(target!!, pin, record)
             },
         ) { Text("Connect") }
     }
@@ -222,9 +244,13 @@ private fun Setup(state: LinkState, onConnect: (() -> DongleTransport, String) -
 
 @Composable
 private fun Live(readings: List<Reading>, onDisconnect: () -> Unit) {
+    val recording by Session.recording.collectAsStateWithLifecycle()
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Connected", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
         OutlinedButton(onClick = onDisconnect) { Text("Disconnect") }
+    }
+    recording?.let {
+        Text("Recording to ${it.substringAfterLast('/')}", style = MaterialTheme.typography.bodySmall)
     }
     Spacer(Modifier.height(8.dp))
     if (readings.isEmpty()) {

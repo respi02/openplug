@@ -82,14 +82,28 @@ final class DongleModel: ObservableObject {
     /// Set if the trip log on disk could not be opened; trips are then not recorded.
     @Published private(set) var journalProblem: String?
 
-    private let trips: TripJournal?
+    /// The file the current session records its values to, if recording is on.
+    @Published private(set) var recording: String?
+
+    private var trips: TripJournal?
+    /// Whether `trips` is the fake dongle's journal (debug builds keep it apart, so
+    /// synthetic values never end up in the car's trip log).
+    private var tripsAreDemo = false
     private var control: SessionControl?
 
     init() {
+        openJournal(demo: false)
+    }
+
+    /// Opens the car's journal, or the fake dongle's; a no-op if it is already open.
+    private func openJournal(demo: Bool) {
+        if trips != nil && tripsAreDemo == demo { return }
         do {
-            let journal = try TripJournal.open(path: try Self.journalPath())
+            let journal = try TripJournal.open(path: try Self.journalPath(demo: demo))
             _ = journal.tick(nowMs: nowMs()) // close a trip left paused by an earlier run
             trips = journal
+            tripsAreDemo = demo
+            journalProblem = nil
             self.journal = Self.snapshot(journal)
         } catch JournalError.Unreadable(let message) {
             trips = nil
@@ -100,7 +114,7 @@ final class DongleModel: ObservableObject {
         }
     }
 
-    private static func journalPath() throws -> String {
+    private static func journalPath(demo: Bool) throws -> String {
         #if DEBUG
         if let override = ProcessInfo.processInfo.environment["OPENPLUG_JOURNAL"] { return override }
         #endif
@@ -108,21 +122,60 @@ final class DongleModel: ObservableObject {
             .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("OpenPlug", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("journal.json").path
+        return dir.appendingPathComponent(demo ? "journal-demo.json" : "journal.json").path
+    }
+
+    /// Where recordings go: visible in the Files app on iOS (On My iPhone › OpenPlug),
+    /// in ~/Documents/OpenPlug Recordings on a Mac.
+    static func recordingsDirectory() throws -> URL {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["OPENPLUG_RECORDINGS"] {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        #endif
+        let docs = try FileManager.default
+            .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        #if os(macOS)
+        return docs.appendingPathComponent("OpenPlug Recordings", isDirectory: true)
+        #else
+        return docs.appendingPathComponent("Recordings", isDirectory: true)
+        #endif
+    }
+
+    /// A recorder writing to a new file, or nil if it cannot be created (the session
+    /// then runs without recording rather than not at all).
+    private static func makeRecorder() -> (ValueRecorder, String)? {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = format.string(from: Date())
+        guard let dir = try? recordingsDirectory() else { return nil }
+        let path = dir.appendingPathComponent("drive-\(stamp).jsonl").path
+        guard let recorder = try? ValueRecorder.open(path: path, nowMs: nowMs()) else { return nil }
+        return (recorder, path)
     }
 
     var isActive: Bool { control != nil }
 
-    func connect(to target: Target, pin: String) {
+    /// Starts a session. With `record`, the value stream of the whole session is also
+    /// written to a new file, to replay the drive later (`fake_dongle --replay`, the
+    /// `replay` example).
+    func connect(to target: Target, pin: String, record: Bool = false) {
         guard control == nil else { return }
         let control = SessionControl()
         self.control = control
         readings = []
         state = .connecting("Looking for the dongle…")
+        #if DEBUG
+        if case .demo = target { openJournal(demo: true) } else { openJournal(demo: false) }
+        #endif
         let trips = self.trips
+        let made = record ? Self.makeRecorder() : nil
+        let recorder = made?.0
+        recording = made?.1
 
         Thread.detachNewThread { [weak self] in
-            let end = Self.session(target: target, pin: pin, control: control, trips: trips) { update in
+            let end = Self.session(target: target, pin: pin, control: control, trips: trips, recorder: recorder) { update in
                 Task { @MainActor in self?.apply(update) }
             }
             Task { @MainActor in self?.finish(end, control) }
@@ -154,6 +207,7 @@ final class DongleModel: ObservableObject {
     private func finish(_ end: LinkState, _ finished: SessionControl) {
         guard control === finished else { return }
         control = nil
+        recording = nil
         state = end
         if let trips { journal = Self.snapshot(trips) }
         #if DEBUG
@@ -171,7 +225,7 @@ final class DongleModel: ObservableObject {
     /// rejected. Returns the state to end in.
     private nonisolated static func session(
         target: Target, pin: String, control: SessionControl, trips: TripJournal?,
-        publish: @escaping (Update) -> Void
+        recorder: ValueRecorder?, publish: @escaping (Update) -> Void
     ) -> LinkState {
         var failures = 0
         while true {
@@ -187,7 +241,9 @@ final class DongleModel: ObservableObject {
             var wasConnected = false
             let problem: String
             do {
-                try stream(transport, pin: pin, trips: trips, publish: publish) { wasConnected = true }
+                try stream(transport, pin: pin, trips: trips, recorder: recorder, publish: publish) {
+                    wasConnected = true
+                }
                 problem = "The connection ended."
             } catch DongleError.WrongPin {
                 transport.close()
@@ -209,6 +265,7 @@ final class DongleModel: ObservableObject {
             if wasConnected {
                 failures = 0
                 trips?.onDisconnected(nowMs: nowMs())
+                recorder?.onDisconnected(nowMs: nowMs())
             }
             if let trips { publish(.journal(snapshot(trips))) }
             if control.isStopped { return .idle }
@@ -228,7 +285,7 @@ final class DongleModel: ObservableObject {
 
     /// One connection: authenticate, subscribe, pump readings until the link ends.
     private nonisolated static func stream(
-        _ transport: SessionTransport, pin: String, trips: TripJournal?,
+        _ transport: SessionTransport, pin: String, trips: TripJournal?, recorder: ValueRecorder?,
         publish: @escaping (Update) -> Void, onConnected: () -> Void
     ) throws {
         try transport.open()
@@ -237,11 +294,13 @@ final class DongleModel: ObservableObject {
         try dongle.subscribeDefaults()
         onConnected()
         trips?.onConnected(nowMs: nowMs())
+        recorder?.onConnected(nowMs: nowMs())
         publish(.state(.connected(transport.displayName)))
 
         var latest: [UInt32: Reading] = [:]
         while true {
             let batch = try dongle.nextReadings()
+            recorder?.onReadings(readings: batch, nowMs: nowMs())
             for r in batch { latest[r.url] = r }
             // labelled values first, then by id
             let sorted = latest.values.sorted {
@@ -263,14 +322,16 @@ final class DongleModel: ObservableObject {
     // MARK: development aid
 
     #if DEBUG
-    /// `OpenPlug --autoconnect bluetooth|demo` with the PIN in OPENPLUG_PIN connects
-    /// on launch and traces the session to stdout.
+    /// `OpenPlug --autoconnect bluetooth|demo [--record]` with the PIN in OPENPLUG_PIN
+    /// connects on launch and traces the session to stdout.
     func autoconnectIfRequested() {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: "--autoconnect"), args.indices.contains(i + 1),
               let pin = ProcessInfo.processInfo.environment["OPENPLUG_PIN"] else { return }
         tracing = true
-        connect(to: args[i + 1] == "demo" ? .demo(host: "127.0.0.1") : .bluetooth, pin: pin)
+        connect(to: args[i + 1] == "demo" ? .demo(host: "127.0.0.1") : .bluetooth, pin: pin,
+                record: args.contains("--record"))
+        if let recording { print("recording to \(recording)") }
     }
 
     private var tracing = false

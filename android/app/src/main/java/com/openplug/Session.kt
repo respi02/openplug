@@ -11,10 +11,15 @@ import com.openplug.core.Reading
 import com.openplug.core.RefuelRecord
 import com.openplug.core.TripJournal
 import com.openplug.core.TripRecord
+import com.openplug.core.ValueRecorder
+import com.openplug.core.RecordingException
 import com.openplug.transport.DongleTransport
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 sealed interface LinkState {
     data object Idle : LinkState
@@ -56,11 +61,16 @@ object Session {
     private val _journalProblem = MutableStateFlow<String?>(null)
     val journalProblem: StateFlow<String?> = _journalProblem
 
-    private class Request(val open: () -> DongleTransport, val pin: String)
+    /** The file the current session records its values to, if recording is on. */
+    private val _recording = MutableStateFlow<String?>(null)
+    val recording: StateFlow<String?> = _recording
+
+    private class Request(val open: () -> DongleTransport, val pin: String, val recordTo: File?)
 
     private val lock = Any()
     private var trips: TripJournal? = null
-    private var journalOpened = false
+    /** Which journal is open: null = none yet, true = the fake dongle's (debug builds). */
+    private var journalIsDemo: Boolean? = null
     private var pending: Request? = null
     private var running = false
     private var stopped = false
@@ -68,27 +78,56 @@ object Session {
 
     val isActive: Boolean get() = synchronized(lock) { running || pending != null }
 
-    /** Opens the trip log; safe to call repeatedly. */
+    /** Makes sure a trip log is open (the car's, unless one is open already). */
     fun openJournal(context: Context) {
+        if (synchronized(lock) { journalIsDemo } == null) useJournal(context, demo = false)
+    }
+
+    /**
+     * Opens the car's trip log, or the fake dongle's, which debug builds keep apart so
+     * synthetic values never end up in the car's log. Only called while no session runs.
+     */
+    private fun useJournal(context: Context, demo: Boolean) {
         synchronized(lock) {
-            if (journalOpened) return
-            journalOpened = true
+            if (journalIsDemo == demo) return
+            journalIsDemo = demo
         }
+        trips?.destroy()
+        trips = null
         try {
-            val journal = TripJournal.open(File(context.filesDir, "journal.json").path)
+            val name = if (demo) "journal-demo.json" else "journal.json"
+            val journal = TripJournal.open(File(context.filesDir, name).path)
             journal.tick(now()) // close a trip left paused by an earlier run
             trips = journal
+            _journalProblem.value = null
             publishJournal()
         } catch (e: JournalException) {
             _journalProblem.value = e.message
+            _journal.value = JournalSnapshot()
         }
     }
 
-    /** Starts the session in the foreground service. */
-    fun start(context: Context, open: () -> DongleTransport, pin: String) {
+    /** Where recordings go: reachable with `adb pull`, no storage permission needed. */
+    fun recordingsDir(context: Context): File =
+        File(context.getExternalFilesDir(null) ?: context.filesDir, "recordings")
+
+    /**
+     * Starts the session in the foreground service. With [record], the value stream
+     * of the whole session is also written to a new file in [recordingsDir], to
+     * replay the drive later (`fake_dongle --replay`, the `replay` example).
+     */
+    fun start(context: Context, open: () -> DongleTransport, pin: String, record: Boolean, demo: Boolean) {
+        val recordTo = if (record) {
+            val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())
+            File(recordingsDir(context), "drive-$stamp.jsonl")
+        } else {
+            null
+        }
+        if (isActive) return
+        useJournal(context, demo)
         synchronized(lock) {
             if (running || pending != null) return
-            pending = Request(open, pin)
+            pending = Request(open, pin, recordTo)
             stopped = false
         }
         _readings.value = emptyList()
@@ -115,9 +154,18 @@ object Session {
             running = true
             r
         }
+        val recorder = request.recordTo?.let { file ->
+            try {
+                ValueRecorder.open(file.path, now()).also { _recording.value = file.path }
+            } catch (e: RecordingException) {
+                null // record nothing rather than not connect
+            }
+        }
         val end = try {
-            loop(request)
+            loop(request, recorder)
         } finally {
+            recorder?.destroy()
+            _recording.value = null
             synchronized(lock) {
                 running = false
                 transport = null
@@ -129,7 +177,7 @@ object Session {
 
     private fun isStopped() = synchronized(lock) { stopped }
 
-    private fun loop(request: Request): LinkState {
+    private fun loop(request: Request, recorder: ValueRecorder?): LinkState {
         var failures = 0
         while (true) {
             val t = request.open()
@@ -139,7 +187,7 @@ object Session {
             }
             var wasConnected = false
             val problem = try {
-                stream(t, request.pin) { wasConnected = true }
+                stream(t, request.pin, recorder) { wasConnected = true }
                 "The connection ended."
             } catch (e: DongleException.WrongPin) {
                 t.close()
@@ -156,6 +204,7 @@ object Session {
             if (wasConnected) {
                 failures = 0
                 trips?.onDisconnected(now())
+                recorder?.onDisconnected(now())
             }
             publishJournal()
             if (isStopped()) return LinkState.Idle
@@ -174,17 +223,19 @@ object Session {
     }
 
     /** One connection: authenticate, subscribe, pump readings until the link ends. */
-    private fun stream(t: DongleTransport, pin: String, onConnected: () -> Unit) {
+    private fun stream(t: DongleTransport, pin: String, recorder: ValueRecorder?, onConnected: () -> Unit) {
         t.open()
         _state.value = LinkState.Connecting("Authenticating…")
         Dongle.connect(t, pin).use { dongle ->
             dongle.subscribeDefaults()
             onConnected()
             trips?.onConnected(now())
+            recorder?.onConnected(now())
             _state.value = LinkState.Connected
             val latest = LinkedHashMap<UInt, Reading>()
             while (true) {
                 val batch = dongle.nextReadings()
+                recorder?.onReadings(batch, now())
                 for (r in batch) latest[r.url] = r
                 // labelled values first, then by id
                 _readings.value = latest.values.sortedWith(compareBy<Reading> { it.name == null }.thenBy { it.url })

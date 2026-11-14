@@ -24,7 +24,7 @@ pub const TRIP_FINISH_AFTER_MS: u64 = 15 * 60 * 1000;
 /// Smallest rise of the fuel level between two connections that counts as a refuel.
 pub const REFUEL_MIN_LITRES: f64 = 1.0;
 /// Trips shorter than this are dropped (shuffling the car on a driveway).
-const MIN_TRIP_KM: f64 = 0.05;
+pub const MIN_TRIP_KM: f64 = 0.05;
 /// Longest gap between two speed samples that still counts as continuous driving.
 const MAX_SAMPLE_GAP_MS: u64 = 10_000;
 /// How often an active trip is written to disk.
@@ -34,6 +34,17 @@ const URL_SPEED: u32 = 0x0002_0000;
 const URL_FUEL_L: u32 = 0x0002_0002;
 const URL_ODOMETER: u32 = 0x0002_0004;
 const URL_RPM: u32 = 0x0004_0000;
+
+/// Whether a trip is in progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TripState {
+    /// No trip in progress.
+    Idle,
+    /// The car is connected and a trip is being recorded.
+    Running,
+    /// The link dropped during a trip; it resumes if the car moves again in time.
+    Paused,
+}
 
 /// One finished (or still running) drive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,6 +163,14 @@ impl Journal {
     /// The trip in progress (running or paused), as it stands now.
     pub fn active_trip(&self) -> Option<Trip> {
         self.data.active.as_ref().map(summarize)
+    }
+
+    pub fn trip_state(&self) -> TripState {
+        match &self.data.active {
+            None => TripState::Idle,
+            Some(a) if a.paused_at_ms.is_some() => TripState::Paused,
+            Some(_) => TripState::Running,
+        }
     }
 
     pub fn totals(&self) -> Totals {
@@ -297,6 +316,12 @@ impl Journal {
         });
         self.save();
         kept
+    }
+
+    /// Writes the journal to its file now (it is otherwise saved on every change of
+    /// state and once a minute during a trip).
+    pub fn flush(&self) {
+        self.save();
     }
 
     fn save_at(&mut self, now_ms: u64) {
