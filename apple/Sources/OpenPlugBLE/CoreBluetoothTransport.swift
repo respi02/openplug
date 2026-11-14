@@ -9,8 +9,13 @@ import Foundation
 /// - receive: each one-byte `0xff` notification on the doorbell characteristic means
 ///   one chunk is waiting; read the data characteristic to fetch it.
 ///
-/// Core Bluetooth runs on a private queue; `open`, `send` and `recv` block the
-/// caller, which must not be the main thread of a UI app.
+/// Finding the dongle: a known dongle (``DongleCentral/knownPeripheral``) gets a
+/// pending connect, which never times out and which iOS completes in the background;
+/// at the same time a scan for the dongle's service finds a new one. A connection
+/// restored by the system after a relaunch is picked up directly.
+///
+/// Core Bluetooth runs on the shared central's queue; `open`, `send` and `recv` block
+/// the caller, which must not be the main thread of a UI app.
 public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked Sendable {
     public static let service = CBUUID(string: "732DB477-BFD6-4694-9378-86C246F35DEF")
     static let dataUUID = CBUUID(string: "478A86F3-E47C-4618-9B15-3C7C92CC8184")
@@ -30,10 +35,18 @@ public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked S
         }
     }
 
-    private let queue = DispatchQueue(label: "openplug.ble")
-    private var central: CBCentralManager!
+    private let hub = DongleCentral.shared
+    private var queue: DispatchQueue { hub.queue }
+    private var central: CBCentralManager { hub.central }
+
+    // Touched only on `queue`.
+    private var begun = false
+    /// Being connected (pending connect) but not yet ours.
+    private var candidates: [CBPeripheral] = []
     private var peripheral: CBPeripheral?
     private var dataChar: CBCharacteristic?
+    private var pendingBells = 0
+    private var reading = false
 
     // Guarded by `cond`.
     private let cond = NSCondition()
@@ -43,31 +56,51 @@ public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked S
     private var openResult: Result<Void, OpenError>?
     private var writeResult: Result<Void, TransportError>?
 
-    // Touched only on `queue`.
-    private var pendingBells = 0
-    private var reading = false
-
     /// The name the dongle reported over BLE (seen: `DP_2_1_<serial>` and `CARe`).
     public private(set) var peripheralName: String?
 
-    public override init() {
+    /// While Bluetooth is off, keep waiting for it (an app session) instead of failing
+    /// (a one-shot command-line run).
+    private let waitForBluetooth: Bool
+
+    public init(waitForBluetooth: Bool = false) {
+        self.waitForBluetooth = waitForBluetooth
         super.init()
-        central = CBCentralManager(delegate: self, queue: queue)
     }
 
-    /// Scans for a dongle, connects and prepares both characteristics.
-    public func open(timeout: TimeInterval = 20) throws {
-        let deadline = Date().addingTimeInterval(timeout)
+    /// Starts looking for the dongle without waiting. Call it as early as possible
+    /// after losing a connection: the pending connect it places is what lets iOS
+    /// reconnect while the app is suspended.
+    public func begin() {
+        queue.async {
+            guard !self.begun else { return }
+            self.begun = true
+            self.hub.attach(self)
+        }
+    }
+
+    /// Finds the dongle, connects and prepares both characteristics. Waits at most
+    /// `timeout` seconds, or until ``close()`` when `timeout` is nil.
+    public func open(timeout: TimeInterval? = 20) throws {
+        begin()
+        let deadline = timeout.map { Date().addingTimeInterval($0) }
         cond.lock()
         defer { cond.unlock() }
-        while openResult == nil {
-            if !cond.wait(until: deadline) {
-                let where_ = stage
-                queue.async { self.teardown() }
-                throw OpenError.timeout(where_)
+        while openResult == nil && !closed {
+            if let deadline {
+                if !cond.wait(until: deadline) {
+                    let where_ = stage
+                    cond.unlock()
+                    close()
+                    cond.lock()
+                    throw OpenError.timeout(where_)
+                }
+            } else {
+                cond.wait()
             }
         }
-        try openResult!.get()
+        guard let result = openResult else { throw OpenError.failed("closed") }
+        try result.get()
     }
 
     public func close() {
@@ -120,7 +153,11 @@ public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked S
 
     private func teardown() {
         if central.isScanning { central.stopScan() }
-        if let p = peripheral { central.cancelPeripheralConnection(p) }
+        for p in candidates + [peripheral].compactMap({ $0 }) {
+            central.cancelPeripheralConnection(p)
+        }
+        candidates = []
+        hub.detach(self)
         markClosed()
     }
 
@@ -131,57 +168,110 @@ public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked S
         cond.unlock()
     }
 
+    private var isClosed: Bool {
+        cond.lock(); defer { cond.unlock() }
+        return closed
+    }
+
+    func owns(_ p: CBPeripheral) -> Bool {
+        p === peripheral || candidates.contains { $0 === p }
+    }
+
+    /// Takes `p` as the dongle and sets it up (it is connected).
+    private func adopt(_ p: CBPeripheral) {
+        if central.isScanning { central.stopScan() }
+        for other in candidates where other !== p {
+            central.cancelPeripheralConnection(other)
+        }
+        candidates = []
+        peripheral = p
+        peripheralName = peripheralName ?? p.name
+        DongleCentral.knownPeripheral = p.identifier
+        p.delegate = self
+        setStage("discovering services")
+        p.discoverServices([Self.service])
+    }
+
+    private func connect(_ p: CBPeripheral) {
+        guard !candidates.contains(where: { $0 === p }) else { return }
+        candidates.append(p)
+        central.connect(p) // pending until the dongle is in reach; never times out
+    }
+
+    /// Where to look once Bluetooth is on.
+    private func search() {
+        guard peripheral == nil, !isClosed else { return }
+        if let p = hub.takeConnected() {
+            return adopt(p) // restored by the system, or connected meanwhile
+        }
+        if let p = hub.takeConnecting() {
+            candidates.append(p) // a restored pending connect: keep waiting on it
+        }
+        if let id = DongleCentral.knownPeripheral,
+           let p = central.retrievePeripherals(withIdentifiers: [id]).first {
+            setStage("waiting for the dongle")
+            connect(p)
+        } else {
+            setStage("scanning for the dongle")
+        }
+        // A scan also finds a dongle we have not met (or one that changed identifier).
+        central.scanForPeripherals(withServices: [Self.service])
+    }
+
+    func centralDidUpdateState(_ central: CBCentralManager) {
+        switch central.state {
+        case .poweredOn:
+            search()
+        case .unknown, .resetting:
+            break
+        case .unauthorized:
+            finishOpen(.failure(.bluetoothUnavailable("permission denied")))
+        case .poweredOff:
+            if peripheral != nil || !waitForBluetooth {
+                finishOpen(.failure(.bluetoothUnavailable("powered off")))
+                markClosed()
+            } else {
+                candidates = [] // Core Bluetooth dropped them; search again once it is on
+                setStage("waiting for Bluetooth")
+            }
+        default:
+            finishOpen(.failure(.bluetoothUnavailable("unsupported")))
+        }
+    }
+
+    func didDiscover(_ p: CBPeripheral, advertisementData: [String: Any]) {
+        guard peripheral == nil else { return }
+        if let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String { peripheralName = name }
+        setStage("connecting")
+        connect(p)
+    }
+
+    func didConnect(_ p: CBPeripheral) {
+        guard peripheral == nil else { return }
+        adopt(p)
+    }
+
+    func didFailToConnect(_ p: CBPeripheral, error: Error?) {
+        guard owns(p) else { return }
+        candidates.removeAll { $0 === p }
+        if candidates.isEmpty && peripheral == nil {
+            finishOpen(.failure(.failed("connect failed: \(error?.localizedDescription ?? "unknown")")))
+            markClosed()
+        }
+    }
+
+    func didDisconnect(_ p: CBPeripheral, error: Error?) {
+        guard owns(p) else { return }
+        finishOpen(.failure(.failed("disconnected: \(error?.localizedDescription ?? "closed")")))
+        markClosed()
+    }
+
     /// One read per doorbell, one at a time.
     private func pump() {
         guard !reading, pendingBells > 0, let p = peripheral, let c = dataChar else { return }
         pendingBells -= 1
         reading = true
         p.readValue(for: c)
-    }
-}
-
-extension CoreBluetoothTransport: CBCentralManagerDelegate {
-    public func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        switch central.state {
-        case .poweredOn:
-            setStage("scanning for the dongle")
-            central.scanForPeripherals(withServices: [Self.service])
-        case .unknown, .resetting:
-            break
-        case .unauthorized:
-            finishOpen(.failure(.bluetoothUnavailable("permission denied")))
-        case .poweredOff:
-            finishOpen(.failure(.bluetoothUnavailable("powered off")))
-            markClosed()
-        default:
-            finishOpen(.failure(.bluetoothUnavailable("unsupported")))
-        }
-    }
-
-    public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
-                               advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        guard self.peripheral == nil else { return }
-        self.peripheral = peripheral
-        peripheralName = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name
-        central.stopScan()
-        setStage("connecting")
-        peripheral.delegate = self
-        central.connect(peripheral)
-    }
-
-    public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        setStage("discovering services")
-        peripheral.discoverServices([Self.service])
-    }
-
-    public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        finishOpen(.failure(.failed("connect failed: \(error?.localizedDescription ?? "unknown")")))
-        markClosed()
-    }
-
-    public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        finishOpen(.failure(.failed("disconnected: \(error?.localizedDescription ?? "closed")")))
-        markClosed()
     }
 }
 

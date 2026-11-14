@@ -5,9 +5,9 @@
 > command-line client does the same from a Mac. The app also runs on macOS and in the
 > iOS simulator against the fake dongle.
 >
-> Newer than that verification: the **trip log**, **automatic reconnection** and the
-> Bluetooth background mode. These were exercised on macOS and in the simulator
-> against the fake dongle only — not yet on an iPhone or a real drive.
+> Newer than that verification: the **trip log** and **reconnecting in the
+> background**. Exercised on an iPhone against a BLE stand-in for the dongle (below),
+> not yet on a real drive.
 
 ## What is here
 
@@ -15,6 +15,7 @@
 |---|---|
 | `Sources/OpenPlugBLE/` | the Core Bluetooth transport, shared by iOS and macOS |
 | `Sources/openplug-cli/` | macOS command-line client |
+| `Sources/openplug-fake-ble/` | a BLE stand-in for the dongle on a Mac, for testing the iOS app without the car |
 | `App/` | the SwiftUI app: PIN entry (kept in the Keychain), live values, trips and refuels |
 | `project.yml` | XcodeGen spec for the app's Xcode project |
 | `build-core.sh` | builds the Rust core into `OpenPlugCoreFFI.xcframework` + Swift bindings |
@@ -71,6 +72,34 @@ xcrun devicectl device copy from --device <id> --domain-type appDataContainer \
 
 Replay one into the trip log with `cargo run --example replay -- FILE`, or play it to
 the app with `cargo run --example fake_dongle -- --replay FILE` (see the main README).
+
+## Running in the background
+
+Once connected, the session stays on until **Disconnect**, so every drive is recorded
+without opening the app:
+
+- One shared `CBCentralManager` (`DongleCentral`) with a **restore identifier**,
+  created at launch.
+- After a connection is lost, the app at once places a **pending connect** to the
+  dongle it knows (remembered by identifier) plus a scan for the dongle's service.
+  Neither times out, and iOS completes them while the app is suspended. The session
+  thread never sleeps before that, since a suspended app's sleeping thread would not
+  wake.
+- If iOS terminated the app meanwhile, **state restoration** relaunches it in the
+  background when the dongle connects; the model, created at launch, resumes the
+  stored session. The PIN is kept readable after the first unlock, so this works with
+  the phone locked. (iOS does not relaunch an app the user swiped away.)
+
+Verified on an iPhone with `openplug-fake-ble`: reconnecting after a minute in the
+background, and a relaunch after the app was killed while waiting, with the phone
+locked.
+
+```sh
+(cd core && cargo run --example fake_dongle)   # the dongle's TLS end (PIN 1234)
+cd apple && swift run openplug-fake-ble         # advertise it over BLE from the Mac
+```
+
+Stopping `openplug-fake-ble` looks to the phone like the ignition going off.
 
 ## The BLE transport
 

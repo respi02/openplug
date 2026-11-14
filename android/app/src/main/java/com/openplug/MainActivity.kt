@@ -5,7 +5,9 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.format.DateUtils
@@ -56,12 +58,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openplug.core.Reading
 import com.openplug.core.TripRecord
-import com.openplug.transport.BluetoothSppTransport
-import com.openplug.transport.DongleTransport
-import com.openplug.transport.TcpTransport
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         Session.openJournal(applicationContext)
+        Session.resume(applicationContext) // a wanted session that is not running (process was killed)
         setContent {
             MaterialTheme(if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 OpenPlugScreen()
@@ -78,16 +79,18 @@ class MainActivity : ComponentActivity() {
 }
 
 /** Something the user can connect to: a bonded dongle, or (debug) the fake one. */
-private data class Target(val id: String, val label: String, val open: () -> DongleTransport)
+private data class Target(val id: String, val label: String)
 
-private const val PREFS = "openplug"
-
-/** The debug-only fake dongle's target id (it has a trip log of its own). */
-private const val FAKE_ID = "tcp"
-
-/** Bluetooth to reach the dongle; notifications to show the session while it runs. */
+/**
+ * Bluetooth to reach the dongle (and to notice it advertising nearby, which lets a
+ * waiting session reconnect while the phone sleeps); notifications to show the
+ * session while it runs.
+ */
 private fun wantedPermissions(): Array<String> = buildList {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(Manifest.permission.BLUETOOTH_CONNECT)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        add(Manifest.permission.BLUETOOTH_CONNECT)
+        add(Manifest.permission.BLUETOOTH_SCAN)
+    }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
 }.toTypedArray()
 
@@ -102,8 +105,8 @@ private fun targets(context: Context): List<Target> {
         context.getSystemService(BluetoothManager::class.java)?.adapter?.bondedDevices.orEmpty()
     val dongles = bonded
         .sortedByDescending { it.name?.startsWith("DP_") == true } // DataPlugs first
-        .map { d -> Target(d.address, d.name ?: d.address) { BluetoothSppTransport(d) } }
-    val fake = Target(FAKE_ID, "Fake dongle (TCP 127.0.0.1:4455)") { TcpTransport("127.0.0.1", 4455) }
+        .map { d -> Target(d.address, d.name ?: d.address) }
+    val fake = Target(Settings.FAKE_ID, "Fake dongle (TCP 127.0.0.1:4455)")
     return if (BuildConfig.DEBUG) dongles + fake else dongles
 }
 
@@ -135,29 +138,27 @@ private fun LiveTab() {
     Text("OpenPlug", style = MaterialTheme.typography.headlineMedium)
     Spacer(Modifier.height(12.dp))
     when (state) {
-        LinkState.Connected -> Live(readings, onDisconnect = Session::stop)
+        LinkState.Connected -> Live(readings, onDisconnect = { Session.stop(context) })
         else -> Setup(
             state,
-            onConnect = { target, pin, record ->
-                Session.start(context.applicationContext, target.open, pin, record, demo = target.id == FAKE_ID)
-            },
-            onStop = Session::stop,
+            onConnect = { target, pin, record -> Session.start(context, SessionSettings(target.id, pin, record)) },
+            onStop = { Session.stop(context) },
         )
     }
+    BackgroundCard()
 }
 
 @Composable
 private fun Setup(state: LinkState, onConnect: (Target, String, Boolean) -> Unit, onStop: () -> Unit) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     var granted by remember { mutableStateOf(hasBluetoothPermission(context)) }
     val askPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         granted = hasBluetoothPermission(context)
     }
-    var pin by remember { mutableStateOf(prefs.getString("pin", "") ?: "") }
-    var selected by remember { mutableStateOf(prefs.getString("target", null)) }
+    var pin by remember { mutableStateOf(Settings.pin(context)) }
+    var selected by remember { mutableStateOf(Settings.target(context)) }
     // on by default in debug builds, which are the ones taken on test drives
-    var record by remember { mutableStateOf(prefs.getBoolean("record", BuildConfig.DEBUG)) }
+    var record by remember { mutableStateOf(Settings.record(context)) }
     val busy = state is LinkState.Connecting || state is LinkState.Waiting
 
     if (!granted) {
@@ -209,7 +210,7 @@ private fun Setup(state: LinkState, onConnect: (Target, String, Boolean) -> Unit
         }
         Switch(checked = record, enabled = !busy, onCheckedChange = {
             record = it
-            prefs.edit().putBoolean("record", it).apply()
+            Settings.setRecord(context, it)
         })
     }
     Spacer(Modifier.height(12.dp))
@@ -230,7 +231,6 @@ private fun Setup(state: LinkState, onConnect: (Target, String, Boolean) -> Unit
         Button(
             enabled = target != null && pin.isNotEmpty(),
             onClick = {
-                prefs.edit().putString("pin", pin).putString("target", selected).apply()
                 askPermissions.launch(wantedPermissions()) // notifications, if not asked yet
                 onConnect(target!!, pin, record)
             },
@@ -271,6 +271,36 @@ private fun formatValue(r: Reading): String {
     if (!r.available) return "—"
     val number = String.format(Locale.getDefault(), "%.${r.precision.toInt()}f", r.value)
     return if (r.unit != null) "$number ${r.unit}" else number
+}
+
+/**
+ * Asks to lift battery optimization. Without it the system may refuse to bring the
+ * session back after it killed the app, and Doze delays reconnecting.
+ */
+@Composable
+private fun BackgroundCard() {
+    val context = LocalContext.current
+    var unrestricted by remember { mutableStateOf(Settings.isBatteryUnrestricted(context)) }
+    LifecycleResumeEffect(Unit) {
+        unrestricted = Settings.isBatteryUnrestricted(context)
+        onPauseOrDispose {}
+    }
+    if (unrestricted) return
+    Spacer(Modifier.height(16.dp))
+    Text("Background", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "To record every drive without opening the app, allow OpenPlug to run without battery restrictions.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Spacer(Modifier.height(4.dp))
+    OutlinedButton(onClick = {
+        @SuppressLint("BatteryLife") // a trip logger has to wake for the car; the user decides
+        val intent = Intent(
+            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:${context.packageName}"),
+        )
+        context.startActivity(intent)
+    }) { Text("Allow running in the background") }
 }
 
 // ---- Trips ----

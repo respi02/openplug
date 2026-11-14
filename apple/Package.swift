@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .library(name: "OpenPlugBLE", targets: ["OpenPlugBLE"]),
         .executable(name: "openplug-cli", targets: ["openplug-cli"]),
+        .executable(name: "openplug-fake-ble", targets: ["openplug-fake-ble"]),
     ],
     targets: [
         // The Rust core as static libraries, with the UniFFI C header (generated).
@@ -17,5 +18,7 @@ let package = Package(
         // The Core Bluetooth transport, shared by macOS and iOS. Re-exports OpenPlugCore.
         .target(name: "OpenPlugBLE", dependencies: ["OpenPlugCore"]),
         .executableTarget(name: "openplug-cli", dependencies: ["OpenPlugBLE"]),
+        // A BLE stand-in for the dongle (macOS), bridging to the core's fake_dongle.
+        .executableTarget(name: "openplug-fake-ble"),
     ]
 )

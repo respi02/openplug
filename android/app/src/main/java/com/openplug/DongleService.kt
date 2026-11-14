@@ -9,24 +9,33 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import kotlin.concurrent.thread
 
 /**
  * Keeps the dongle session alive while the app is in the background, so a drive is
- * recorded from start to end. Shows an ongoing notification while it runs.
+ * recorded from start to end. Shows an ongoing notification while it runs. Sticky: if
+ * the system kills the process, the service comes back and resumes the session.
  */
 class DongleService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // A sticky restart after the process was killed arrives with no work queued:
+        // pick up the wanted session, or stop.
+        val restarted = intent == null
+        if (restarted && !Session.prepareResume(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL, "Dongle connection", NotificationManager.IMPORTANCE_LOW),
         )
         val notification = Notification.Builder(this, CHANNEL)
             .setContentTitle("OpenPlug")
-            .setContentText("Connected to the car — recording trips")
+            .setContentText("Recording trips while the car is in reach")
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(true)
             .setContentIntent(
@@ -41,21 +50,32 @@ class DongleService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
-        } catch (e: SecurityException) {
-            // Without the Bluetooth permission the system refuses this service type.
-            Session.stop()
+        } catch (e: RuntimeException) {
+            // SecurityException without the Bluetooth permission; on a restart from the
+            // background, ForegroundServiceStartNotAllowedException unless the app is
+            // exempt from battery optimization. Leave the session wanted: the presence
+            // scan or the next app start picks it up.
+            Log.w("OpenPlug", "cannot run in the foreground: $e")
+            Session.abandonPending()
             stopSelf()
             return START_NOT_STICKY
         }
 
-        thread(name = "openplug-session") {
-            Session.run()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+        if (!running) {
+            running = true
+            thread(name = "openplug-session") {
+                Session.run(applicationContext)
+                running = false
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
         }
-        // If the system kills the process, the user reconnects; nothing to restore.
-        return START_NOT_STICKY
+        // Restart after the system kills the process; the session resumes from Settings.
+        return START_STICKY
     }
+
+    @Volatile
+    private var running = false
 
     private companion object {
         const val CHANNEL = "session"

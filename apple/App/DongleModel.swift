@@ -23,14 +23,42 @@ enum Target: Hashable {
 
 /// A transport the model can open and tear down.
 protocol SessionTransport: ByteTransport {
+    /// Starts connecting without waiting (no-op where there is nothing to start).
+    func begin()
     func open() throws
     func close()
     var displayName: String { get }
 }
 
+extension SessionTransport {
+    func begin() {}
+}
+
 extension CoreBluetoothTransport: SessionTransport {
-    func open() throws { try open(timeout: 20) }
+    /// Waits for the dongle as long as it takes: a pending connect, completed by iOS
+    /// even while the app is suspended.
+    func open() throws { try open(timeout: nil) }
     var displayName: String { peripheralName ?? "DataPlug" }
+}
+
+extension Target {
+    /// How a wanted session is stored, to resume it after a relaunch.
+    var stored: String {
+        switch self {
+        case .bluetooth: return "bluetooth"
+        #if DEBUG
+        case .demo(let host): return "demo:" + host
+        #endif
+        }
+    }
+
+    init?(stored: String) {
+        if stored == "bluetooth" { self = .bluetooth; return }
+        #if DEBUG
+        if stored.hasPrefix("demo:") { self = .demo(host: String(stored.dropFirst(5))); return }
+        #endif
+        return nil
+    }
 }
 
 /// What the trip journal currently holds.
@@ -91,8 +119,38 @@ final class DongleModel: ObservableObject {
     private var tripsAreDemo = false
     private var control: SessionControl?
 
-    init() {
+    /// The one model of the app. Created at launch (see `OpenPlugApp`), also when iOS
+    /// relaunches the app in the background to hand back a dongle connection.
+    static let shared = DongleModel()
+
+    private init() {
+        #if os(iOS)
+        DongleCentral.shared.activate() // so iOS can restore its connections
+        #endif
+        Keychain.upgradeAccessibility()
         openJournal(demo: false)
+        resumeIfWanted()
+    }
+
+    // MARK: the wanted session, kept across launches
+
+    private static let wantedKey = "sessionTarget"
+
+    /// The session the user started and did not stop; nil when none.
+    private var wantedTarget: Target? {
+        get { UserDefaults.standard.string(forKey: Self.wantedKey).flatMap(Target.init(stored:)) }
+        set { UserDefaults.standard.set(newValue?.stored, forKey: Self.wantedKey) }
+    }
+
+    /// Picks up the session the user left running, e.g. after iOS ended the app while
+    /// it waited for the car and relaunched it when the dongle connected.
+    private func resumeIfWanted() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--autoconnect") { return } // scripted run decides
+        #endif
+        guard let target = wantedTarget else { return }
+        guard let pin = Keychain.pin, !pin.isEmpty else { return } // not readable before the first unlock
+        connect(to: target, pin: pin, record: UserDefaults.standard.bool(forKey: "recordValues"))
     }
 
     /// Opens the car's journal, or the fake dongle's; a no-op if it is already open.
@@ -162,6 +220,7 @@ final class DongleModel: ObservableObject {
     /// `replay` example).
     func connect(to target: Target, pin: String, record: Bool = false) {
         guard control == nil else { return }
+        wantedTarget = target
         let control = SessionControl()
         self.control = control
         readings = []
@@ -182,8 +241,9 @@ final class DongleModel: ObservableObject {
         }
     }
 
-    /// Stops the session for good (no more retries).
+    /// Stops the session for good (no more retries, nothing resumes it).
     func disconnect() {
+        wantedTarget = nil
         control?.stop()
     }
 
@@ -209,6 +269,7 @@ final class DongleModel: ObservableObject {
         control = nil
         recording = nil
         state = end
+        if case .failed = end { wantedTarget = nil } // retrying cannot help
         if let trips { journal = Self.snapshot(trips) }
         #if DEBUG
         trace()
@@ -227,15 +288,19 @@ final class DongleModel: ObservableObject {
         target: Target, pin: String, control: SessionControl, trips: TripJournal?,
         recorder: ValueRecorder?, publish: @escaping (Update) -> Void
     ) -> LinkState {
-        var failures = 0
-        while true {
-            let transport: SessionTransport
+        func makeTransport() -> SessionTransport {
             switch target {
-            case .bluetooth: transport = CoreBluetoothTransport()
+            case .bluetooth: return CoreBluetoothTransport(waitForBluetooth: true)
             #if DEBUG
-            case .demo(let host): transport = TcpTransport(host: host, port: 4455)
+            case .demo(let host): return TcpTransport(host: host, port: 4455)
             #endif
             }
+        }
+        let bluetooth = target == .bluetooth
+        var failures = 0
+        var transport = makeTransport()
+        transport.begin()
+        while true {
             guard control.adopt(transport) else { transport.close(); return .idle }
 
             var wasConnected = false
@@ -270,9 +335,16 @@ final class DongleModel: ObservableObject {
             if let trips { publish(.journal(snapshot(trips))) }
             if control.isStopped { return .idle }
 
-            // Back off: 5 s, 10 s, 20 s, then every 30 s.
+            // Look again at once: over BLE the pending connect placed by begin() is what
+            // lets iOS reconnect while the app is suspended, so it must not wait.
+            transport = makeTransport()
+            transport.begin()
+
+            // Back off: 5 s, 10 s, 20 s, then every 30 s. A sleeping thread freezes
+            // while iOS suspends the app, so over BLE (where open() already waits for the
+            // dongle) only repeated failures that never got values back off.
             failures += 1
-            let delay = min(30, 5 * (1 << min(failures - 1, 3)))
+            let delay = bluetooth && failures < 3 ? 0 : min(30, 5 * (1 << min(failures - 1, 3)))
             for left in stride(from: delay, to: 0, by: -1) {
                 if control.isStopped { return .idle }
                 publish(.state(.waiting("\(problem) Trying again in \(left) s…")))

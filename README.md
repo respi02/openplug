@@ -70,8 +70,9 @@ Everything below has run against a real dongle in a real car (2026-11-13).
 
 What OpenPlug does today: **live values**, a **trip log** (distance, time, speeds,
 fuel) with **refuel detection**, automatic reconnection whenever the dongle is in
-reach, and recording in the background. The trip log and background recording are new
-and have so far only been exercised against the fake dongle, not on a real drive.
+reach (also from the background, after the system ended the app, and after a reboot),
+and recording in the background. The trip log and background recording are new and
+have so far only been exercised against stand-ins for the dongle, not on a real drive.
 Not there yet: positions and maps, driving score, the warning-light and AdBlue groups,
 the dongle's token authentication (the PIN is used on every connect), and the raw
 OBD/UDS request path. What the original app offered, feature by feature, is in

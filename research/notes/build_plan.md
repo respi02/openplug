@@ -46,7 +46,11 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
    - Token authentication, so the PIN is not needed on every connect.
    - The raw OBD/UDS request path (`sendPDU`), which the app does not use for live
      values.
-3. **Android polish.** Keep the PIN in the Keystore rather than plain preferences.
+3. **Background behaviour** — done on both apps (see `android/README.md` and
+   `apple/README.md`, "Running in the background"); verified against stand-ins.
+   Remaining: confirm on the road that Android's filtered scan matches the real
+   dongle's advertisement, and how often a waiting phone notices the car.
+4. **Android polish.** Keep the PIN in the Keystore rather than plain preferences.
 
 ## Open questions
 - Token lifecycle: how long a token stays valid and whether it is bound to a phone.

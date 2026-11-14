@@ -64,12 +64,36 @@ adb pull /sdcard/Android/data/com.openplug/files/recordings
 Replay one into the trip log with `cargo run --example replay -- FILE`, or play it to
 the app with `cargo run --example fake_dongle -- --replay FILE` (see the main README).
 
+## Running in the background
+
+Once connected, the session stays on until **Disconnect**: when the car goes out of
+reach it waits for it and reconnects, so every drive is recorded without opening the
+app.
+
+- **Foreground service** (`DongleService`, type `connectedDevice`) with an ongoing
+  notification; a partial wake lock only while connected.
+- **Waking for the car:** timed retries stall while the phone sleeps, so a waiting
+  session also hands a filtered BLE scan (the dongle's service UUID, low power) to the
+  system with a `PendingIntent`. The dongle advertises over BLE whenever it is powered
+  and free; a match wakes `PresenceReceiver`, which connects over SPP at once. Verified
+  in forced Doze with a Mac advertising the service UUID; against the real dongle's
+  advertisement not yet.
+- **Coming back:** that the session is wanted is stored. The service is sticky, so it
+  comes back if the system kills the process; it also resumes after a reboot or an app
+  update (`RestartReceiver`), when the app is opened, and when the dongle is seen.
+- **Battery optimization:** the Live tab asks to lift it. Android lets an app start a
+  foreground service from the background only with such an exemption (or a few other
+  ones), so without it a resume from a reboot or from the dongle being seen can be
+  refused; the sticky restart worked without it on our phone.
+
 ## Permissions
-`BLUETOOTH_CONNECT` (Android 12+): the app talks to an already bonded dongle, so it
-needs neither scanning nor location. `FOREGROUND_SERVICE` /
-`FOREGROUND_SERVICE_CONNECTED_DEVICE` and `POST_NOTIFICATIONS` for the session
-service, which keeps recording while the app is in the background. Debug builds add `INTERNET` for the fake
-dongle. Pair the dongle (`DP_2_1_…`) in the system Bluetooth settings first.
+`BLUETOOTH_CONNECT` (Android 12+) to talk to the bonded dongle; `BLUETOOTH_SCAN`
+(`neverForLocation`) to notice it advertising, optional (without it only timed
+retries). `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_CONNECTED_DEVICE` and
+`POST_NOTIFICATIONS` for the session service; `WAKE_LOCK`,
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` and `RECEIVE_BOOT_COMPLETED` for running in
+the background (above). Debug builds add `INTERNET` for the fake dongle. Pair the
+dongle (`DP_2_1_…`) in the system Bluetooth settings first.
 
 ## Notes from the first live run
 - The label PIN is alphanumeric (ours: 8 capital letters).
