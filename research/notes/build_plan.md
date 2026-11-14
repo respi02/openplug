@@ -1,4 +1,4 @@
-# OpenPlug — state and plan (updated 2026-11-13)
+# OpenPlug — state and plan (updated 2026-11-14)
 
 Where the project stands and what comes next. The reasoning behind the architecture
 is in [`tech_stack.md`](tech_stack.md); the protocol is in
@@ -23,21 +23,30 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
 ## What exists
 | Piece | State |
 |---|---|
-| `core/` — tunnel, protocol, read API, UniFFI facade | done; offline tests + live |
-| `core/examples/live`, `fake_dongle` | done |
-| `android/` — Gradle project, SPP transport, Compose UI | done; live values on a phone |
-| `apple/` — Core Bluetooth transport, macOS CLI | done; live values from a Mac |
-| `apple/App/` — SwiftUI app for iOS and macOS | done; live values on an iPhone over BLE |
+| `core/` — tunnel, protocol, read API, UniFFI facade | done; offline tests + a real dongle |
+| `core/` — trip journal (trips, refuels, last values, routes, parking, CSV), recording and replay | done; offline tests |
+| `core/examples/` — `live`, `fake_dongle` (synthetic or replaying a recording), `replay` | done |
+| `android/` — SPP transport, session service, Compose UI (Car · Trips · Settings) | done; live values from a real dongle, the rest against the fake dongle |
+| `apple/` — Core Bluetooth transport, macOS CLI, BLE fake dongle | done; live values from a real dongle |
+| `apple/App/` — SwiftUI app for iOS and macOS, Live Activity extension | done; live values from a real dongle, the rest against stand-ins |
+
+Done since the first live run, all against stand-ins only: the trip log; automatic
+reconnection and running in the background (Android: sticky service, BLE presence
+scan, boot/update receiver; iOS: pending connect, state restoration); value recording
+and replay; the three-tab UI with the car's last known state; routes on a map and the
+parking place; the trip in progress as a Live Activity / live notification; the app icon.
 
 ## Next
-1. **Trip logging** — implemented in `core/src/journal.rs` and both apps, with
-   automatic reconnection and background recording; tested against the fake dongle.
-   Remaining: prove it on real drives (see `original_app_features.md` for what the
-   original app did beyond this). For that, both apps can **record** the value
-   stream (`core/src/recording.rs`); a recorded drive replays into the journal
-   (`examples/replay`) or out of the fake dongle (`fake_dongle --replay`), so the trip
-   rules can be checked and tuned at the desk against real data.
-2. **Protocol coverage.**
+1. **A real drive, recorded.** With "Record values" and "Record routes" on. It settles
+   at once: whether the trip rules hold (a trip was seen to start with the car
+   standing — a start threshold may be needed), whether Android's filtered scan matches
+   the real dongle's advertisement, how soon a waiting phone notices the car, GPS in the
+   background on both platforms, and the Live Activity on a phone. The recording then
+   becomes a test fixture (`examples/replay`, `fake_dongle --replay`).
+2. **Trip log, next features.** Notes and private/business type; addresses for trip
+   ends (reverse geocoding); a tank size setting so the fuel level can be drawn;
+   service reminders; editing and deleting trips.
+3. **Protocol coverage.**
    - Decode the groups the app subscribes to that we do not label yet: 9 (service
      interval status), 11 (warning lights), 17 (boost pressure), 34 (catalyst
      temperature), 44 (AdBlue).
@@ -46,11 +55,9 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
    - Token authentication, so the PIN is not needed on every connect.
    - The raw OBD/UDS request path (`sendPDU`), which the app does not use for live
      values.
-3. **Background behaviour** — done on both apps (see `android/README.md` and
-   `apple/README.md`, "Running in the background"); verified against stand-ins.
-   Remaining: confirm on the road that Android's filtered scan matches the real
-   dongle's advertisement, and how often a waiting phone notices the car.
-4. **Android polish.** Keep the PIN in the Keystore rather than plain preferences.
+4. **Polish and distribution.** The PIN in the Android Keystore rather than plain
+   preferences; signed Android releases; TestFlight (needs a paid developer account;
+   with a free one the iOS app has to be reinstalled every 7 days); CI.
 
 ## Open questions
 - Token lifecycle: how long a token stays valid and whether it is bound to a phone.
@@ -59,3 +66,5 @@ is in [`tech_stack.md`](tech_stack.md); the protocol is in
 - How much of the data-object catalog differs between vehicles; ours is one car.
 - Dongle sleep behaviour with the ignition off (it was reachable over BLE at some
   times and not at others).
+- iOS starts a Live Activity only from the foreground; whether anything short of a
+  push server lets a trip that begins in the background show one.

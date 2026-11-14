@@ -1,19 +1,32 @@
 # OpenPlug — Android app
 
 > **Status:** live values work against a real dongle (first live run 2026-11-13).
-> Since then the app gained a trip log, automatic reconnection and a foreground
-> service; **that version builds but has not been run on a phone yet.** Debug builds
-> also offer a TCP "fake dongle" target for development.
+> Everything added since — the three-tab UI, the trip log, running in the background,
+> routes and maps, the live notification — runs on a phone against the fake dongle,
+> **not yet on a real drive.** Debug builds offer a TCP "fake dongle" target for that.
 
 ## How it fits together
 
 ```
-Compose UI (MainActivity)
+Compose UI (MainActivity: Car · Trips · Settings)
+        │  observes
+Session (in DongleService, a foreground service) ── TripJournal, ValueRecorder (core)
         │
 BluetoothSppTransport  ──implements──►  ByteTransport (UniFFI, from core/src/ffi.rs)
         │                                        │
 Android BluetoothSocket (RFCOMM/SPP)      openplug-core (TLS-SRP + protocol)
 ```
+
+| File | Role |
+|---|---|
+| `MainActivity.kt` | the theme, the three tabs, shared UI pieces |
+| `CarTab.kt`, `TripsTab.kt`, `TripDetail.kt`, `SettingsTab.kt` | the screens |
+| `Session.kt` | the one dongle session: connect, stream, wait and reconnect; feeds the journal |
+| `DongleService.kt` | the foreground service and its live notification |
+| `Presence.kt` | notices the dongle advertising (BLE scan), resumes after boot or update |
+| `PositionFeed.kt` | the phone's position while connected, for routes |
+| `Settings.kt` | stored choices (dongle, PIN, switches) |
+| `transport/` | RFCOMM/SPP, and TCP for the fake dongle |
 
 The Rust core exposes a small facade (`core/src/ffi.rs`, feature `ffi`) through
 **UniFFI** proc-macros — there is no UDL file. Kotlin implements `ByteTransport` on a
@@ -47,7 +60,8 @@ the UniFFI-generated `com/openplug/core/openplug_core.kt`.
 adb reverse tcp:4455 tcp:4455
 ```
 
-Then in a debug build choose **Fake dongle (TCP 127.0.0.1:4455)**, PIN `1234`. The
+Then in a debug build, in **Settings**, choose **Fake dongle (TCP 127.0.0.1:4455)**,
+PIN `1234`, and Connect. The phone has to stay on USB for `adb reverse`. The
 fake dongle has a trip log of its own (`files/journal-demo.json`), so its synthetic
 values never mix with the car's.
 

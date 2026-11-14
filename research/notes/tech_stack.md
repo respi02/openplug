@@ -64,7 +64,7 @@ This decision is independent of the language — it lives in a thin transport la
 | Flutter/Dart | Dart has no TLS-SRP → FFI into C anyway; the iOS BT constraint remains. |
 | Reuse `libdongles.so`/`libmbedtls.so` from the APK | ELF Android-only, unusable on iOS; redistributing a vendor binary (TEXA) is legally worse. A reimplementation is cleaner. |
 
-## Work order (as planned on 2026-11-12; steps 1–4 and the iOS transport are done)
+## Work order (as planned on 2026-11-12; all five steps are done — the current state and plan are in build_plan.md)
 1. **Offline (done):** protocol mapped, TLS-SRP params found, transport for
    both platforms decided, API→modules mapped, crypto core built and verified.
 2. **One live plaintext capture** (ignition on) → fill in the `.proto` and the `url` object catalog.

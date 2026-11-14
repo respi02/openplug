@@ -5,9 +5,10 @@
 > Open-source replacement for the **ŠKODA Connect LITE** app, talking to the
 > Bluetooth OBD dongle *Škoda DataPlug by TEXA*. Clean-room, interoperability-only.
 
-**🚧 Under active development — contributions welcome.** It already reads live
-values from a real dongle on Android (Bluetooth Classic), on iPhone and on macOS (BLE).
-See [Status](#status) and [Contributing](#contributing).
+**🚧 Under active development — contributions welcome.** It reads live values from a
+real dongle on Android (Bluetooth Classic), on iPhone and on macOS (BLE), and keeps a
+trip log with routes on top of them. See [Status](#status),
+[What the apps do](#what-the-apps-do) and [Contributing](#contributing).
 
 ŠKODA discontinued the Connect LITE app on 1 July 2025. The **DataPlug hardware
 still works** — only the app that drove it is gone. OpenPlug is a clean,
@@ -32,8 +33,8 @@ speed · coolant, oil & intake-air temperatures · battery voltage · throttle p
 time & distance since the last service** — the full catalog is in the note above.
 
 The app *subscribes* to a signal at a chosen rate and the dongle streams updates;
-OpenPlug reimplements exactly that read path. (The original app also did phone-side
-trip logging and statistics — see the background notes below.)
+OpenPlug reimplements exactly that read path, and — like the original app — builds
+the trip log and statistics on the phone from those values.
 
 ## Background
 
@@ -60,28 +61,49 @@ notification ([`ble_transport.md`](research/notes/ble_transport.md)).
 
 ## Status
 
-Everything below has run against a real dongle in a real car (2026-11-13).
+The protocol stack has run against a real dongle in a real car on all three clients
+(2026-11-13). Everything built on top since then has been exercised against stand-ins
+for the dongle (a fake dongle over TCP and over BLE, mocked positions) on real phones
+and in the simulator — **not yet on a real drive**.
 
 | Piece | Where | State |
 |---|---|---|
-| Protocol core (Rust) | [`core/`](core/) | ✅ TLS-SRP tunnel + read path; offline tests + live |
-| Android app | [`android/`](android/) | ✅ picks a paired dongle, takes the PIN, shows live values (Classic SPP) |
-| BLE transport (Swift) + macOS CLI | [`apple/`](apple/) | ✅ live values over BLE from a Mac |
-| iOS / macOS app (SwiftUI) | [`apple/App/`](apple/App/) | ✅ live values on an iPhone over BLE; also runs on macOS |
-| Desktop harness + fake dongle | `core/examples/` | ✅ for development without a car |
+| Protocol core (Rust) | [`core/`](core/) | ✅ TLS-SRP tunnel + read path, against a real dongle; trip log, recording and routes by offline tests |
+| Android app | [`android/`](android/) | ✅ live values from a real dongle (Classic SPP); the rest against the fake dongle |
+| BLE transport (Swift) + macOS CLI | [`apple/`](apple/) | ✅ live values from a real dongle over BLE |
+| iOS / macOS app (SwiftUI) | [`apple/App/`](apple/App/) | ✅ live values from a real dongle on an iPhone; the rest against the fake dongle |
+| Desktop harness, fake dongles, replay | `core/examples/`, `apple/Sources/openplug-fake-ble/` | ✅ for development without a car |
 
-What OpenPlug does today: **live values**, the car's **last known state** while it is
-away (fuel, range, odometer, service), a **trip log** (distance, time, speeds, fuel)
-with **refuel detection** and CSV export, optionally with the **route on a map** and
-the **parking place** (phone GPS, kept on the device), the trip in progress as a
-**Live Activity** on iOS and a live notification on Android, automatic reconnection whenever the dongle is in
-reach (also from the background, after the system ended the app, and after a reboot),
-and recording in the background. The trip log and background recording are new and
-have so far only been exercised against stand-ins for the dongle, not on a real drive.
-Not there yet: driving score, the warning-light and AdBlue groups,
-the dongle's token authentication (the PIN is used on every connect), and the raw
-OBD/UDS request path. What the original app offered, feature by feature, is in
-[`original_app_features.md`](research/notes/original_app_features.md).
+## What the apps do
+
+Both apps have the same three tabs.
+
+- **Car** — while connected: speed, engine speed and the trip in progress, fuel and
+  range, odometer, temperatures, battery. While the car is away: its **last known
+  state** with the time it was seen, the last trip, the time and distance since the
+  last service, and (with routes on) where it is **parked**, on a map.
+- **Trips** — a **trip log** kept by the phone: a summary for the last 7 days, the
+  month or the year; trips by day with **refuels** in between; a trip's detail with its
+  numbers and, with routes on, its **route on a map** and the speed along it.
+- **Settings** — the dongle and its PIN, running in the background, routes, value
+  recordings, every live signal the dongle streams, CSV export of the trips.
+
+Around that:
+
+- **Hands-off recording.** Once connected the session stays on: it waits for the car,
+  reconnects when the ignition comes on — from the background, after the system ended
+  the app, after a reboot — and records the drive.
+- **The trip in progress at a glance**: a Live Activity on iOS (lock screen, Dynamic
+  Island), a live notification on Android (a Live Update on Android 16+).
+- **Routes are opt-in.** The phone's position is taken only while the car is connected,
+  stays on the device, and is never written to value recordings.
+- **Record and replay.** A session's value stream can be recorded and replayed later at
+  the desk, into the trip log or out of the fake dongle.
+
+Not there yet: trip notes and types, addresses, driving score, the warning-light and
+AdBlue groups, the dongle's token authentication (the PIN is used on every connect),
+and the raw OBD/UDS request path. What the original app offered, feature by feature,
+is in [`original_app_features.md`](research/notes/original_app_features.md).
 
 ## Architecture
 
@@ -94,6 +116,7 @@ BluetoothSppTransport             CoreBluetoothTransport
         └──────── ByteTransport (UniFFI) ────────┘
                     openplug-core (Rust)
    link → dongle (protobuf) → tls_client / tls_record / srp → bytes
+   journal (trips, refuels, routes, last values) · recording (record / replay)
 ```
 
 | Core module | Role |
@@ -117,13 +140,17 @@ cd core
 cargo test --features ffi
 ```
 
-**End to end without a car** — a stand-in dongle with synthetic values:
+**End to end without a car** — a stand-in dongle with synthetic values, for any number
+of clients at once:
 
 ```sh
 cd core
 cargo run --example fake_dongle                                      # terminal 1
 OPENPLUG_PIN=1234 cargo run --example live -- --tcp 127.0.0.1:4455   # terminal 2
 ```
+
+Debug builds of both apps can connect to it (see their READMEs); for an iPhone over
+real BLE, `apple/Sources/openplug-fake-ble` makes a Mac stand in for the dongle.
 
 **Record a drive, replay it at the desk.** With **Record values** switched on (the
 default in debug builds), both apps write each session's value stream to a file
@@ -161,11 +188,13 @@ the link — stop it while using OpenPlug.
 
 ## Roadmap
 
-1. Prove the trip log, routes and background behaviour on real drives; then trip
-   notes and types, and addresses for trip ends.
-2. More of the protocol: warning lights, AdBlue, token authentication.
-3. Polish on both apps: reconnecting, background behaviour, distribution.
-4. More cars: the catalog so far reflects one vehicle.
+1. Prove the trip log, routes, background behaviour and the Live Activity on real
+   drives, and tune the trip rules against recorded drives.
+2. Trip notes and types (private / business), addresses for trip ends, a tank size so
+   the fuel level can be drawn, service reminders.
+3. More of the protocol: warning lights, AdBlue, token authentication.
+4. Distribution: signed Android releases, TestFlight; the PIN in the Android Keystore.
+5. More cars: the catalog so far reflects one vehicle.
 
 ## Documentation
 
@@ -177,6 +206,12 @@ In [`research/notes/`](research/notes/):
 - [`original_app_features.md`](research/notes/original_app_features.md) — what the original app did and what OpenPlug covers.
 - [`ble_transport.md`](research/notes/ble_transport.md) — how the BLE transport works.
 - [`tech_stack.md`](research/notes/tech_stack.md) · [`build_plan.md`](research/notes/build_plan.md) — architecture rationale, current state and plan.
+
+Per platform: [`android/README.md`](android/README.md) and
+[`apple/README.md`](apple/README.md) — building, the app's structure, running in the
+background, routes and maps, testing without a car. The logo is
+[`docs/logo.svg`](docs/logo.svg); the app icons are generated from the same geometry
+(`tools/make_icons.swift`, `android/app/src/main/res/drawable/ic_launcher_foreground.xml`).
 - [`code_licensing.md`](research/notes/code_licensing.md) — dependency licenses and the clean-room rationale.
 
 ## Contributing

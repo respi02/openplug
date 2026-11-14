@@ -1,4 +1,4 @@
-# What the original Android app did, and what OpenPlug covers (2026-11-13)
+# What the original Android app did, and what OpenPlug covers (updated 2026-11-14)
 
 Read from the retired app's own package on our phone: its local database schema, its
 screens and its log messages. This is a feature inventory to decide what OpenPlug
@@ -19,14 +19,14 @@ vehicle data, challenges/trophies, service partners and appointments.
 | Feature | What it stored | Needs | OpenPlug |
 |---|---|---|---|
 | **Live values** | latest reading per data object | dongle | ✅ |
-| **Vehicle status** | odometer, fuel, average consumption, battery voltage, days/km since service, next service and oil change — each with a timestamp, so the last values show while disconnected | dongle | ◐ live only; not kept while disconnected |
-| **Trips (logbook)** | start/end time, distance, end odometer, duration, start/end fuel and average consumption, start/end position and address, a route map, private/business type and a purpose note, manual trips | dongle + GPS | ◐ time, distance, fuel, speeds; no position, type or notes |
+| **Vehicle status** | odometer, fuel, average consumption, battery voltage, days/km since service, next service and oil change — each with a timestamp, so the last values show while disconnected | dongle | ✅ the last value of every data object, with its time |
+| **Trips (logbook)** | start/end time, distance, end odometer, duration, start/end fuel and average consumption, start/end position and address, a route map, private/business type and a purpose note, manual trips | dongle + GPS | ◐ time, distance, fuel, speeds, start/end position, route map, CSV export; no address, type, notes or manual trips |
 | **Trip route / samples** | per-sample points along a trip: position, altitude, speed, rpm, acceleration, coolant, oil temperature, boost pressure, intake air temperature, throttle | dongle + GPS | ◐ position and speed |
 | **Driving score ("smooth drive")** | per trip: counts of good/bad samples for rpm, acceleration, braking, speed, coolant temperature, and an aggregated result, against a table of thresholds | dongle | ✗ |
-| **Refuelling stops** | time, litres added, fuel level after, odometer, position (taken from the last parking position), price and station entered by the user, consumption since the last stop | dongle (+ GPS) | ◐ detection, litres, odometer |
+| **Refuelling stops** | time, litres added, fuel level after, odometer, position (taken from the last parking position), price and station entered by the user, consumption since the last stop | dongle (+ GPS) | ◐ detection, litres, odometer, position; no price or station |
 | **Parking position** | last GPS fix when the link dropped, with address and a map | GPS | ✅ position and map; no address |
 | **Dashboard indicators** | warning lights by name and status | dongle (group 11) | ✗ not decoded yet |
-| **Service intervals** | days/km to next service and oil change, reminders | dongle (groups 8, 9) | ◐ shown as live values |
+| **Service intervals** | days/km to next service and oil change, reminders | dongle (groups 8, 9) | ◐ days and km since the last service; no reminders |
 | **Tyres** | type, mileage, change reminders | user input | ✗ |
 | **Challenges / trophies** | goals over trips (distance, rpm, speed, smoothness, places) | trips | ✗ |
 
@@ -50,16 +50,19 @@ vehicle data, challenges/trophies, service partners and appointments.
 - `core/src/journal.rs`: the trip state machine (start on speed, pause on link loss,
   resume, finish after 15 minutes) and refuel detection, with distance from the
   speed integral cross-checked against the odometer, moving time, maximum speed and
-  rpm, and fuel used from the tank level. Shared by both apps.
-- Both apps: a Trips tab (current trip, totals, history, refuels), automatic
-  reconnection, and running in the background while connected (a foreground service
-  on Android, the Bluetooth background mode on iOS).
+  rpm, and fuel used from the tank level; the last value of every data object; from
+  position fixes, each trip's route, its start and end, the parking place and the
+  place of a refuel; CSV export. Shared by both apps.
+- Both apps: a Car tab (live values, or the last known state and the parking place),
+  a Trips tab (period summary, trips by day with refuels, trip detail with the route
+  on a map), automatic reconnection and running in the background, and the trip in
+  progress as a Live Activity (iOS) or live notification (Android).
 
 ## Candidates for later, roughly by value
 
-1. Vehicle status that persists while disconnected (last odometer, fuel, service).
-2. Position: start/end of a trip, parking position, refuel location (needs location
-   permission on both platforms).
-3. Trip type and notes; editing and deleting trips; export.
+1. Trip type and notes; editing and deleting trips; manual trips.
+2. Addresses for trip ends and the parking place.
+3. Service reminders; a tank size, so the fuel level can be drawn.
 4. Warning lights (needs group 11 decoded).
-5. Driving score and per-trip samples.
+5. Driving score and richer per-trip samples (rpm, temperatures along the route).
+6. Refuel price and station; tyres.
