@@ -3,6 +3,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+import java.util.Properties
+
+/**
+ * Release signing, from a properties file that never enters the repository
+ * (default `../captures/release-signing.properties`, or the path in
+ * OPENPLUG_SIGNING): `storeFile`, `keyAlias`, `passwordFile`, the last two paths
+ * relative to that file. Without it the release build is unsigned (as F-Droid
+ * builds it, to sign with its own key).
+ */
+val signing: Properties? = (System.getenv("OPENPLUG_SIGNING")?.let(::file) ?: rootProject.file("../captures/release-signing.properties"))
+    .takeIf { it.isFile }
+    ?.let { f -> Properties().apply { f.inputStream().use(::load); setProperty("dir", f.parentFile.path) } }
+
 android {
     namespace = "com.openplug"
     compileSdk = 37
@@ -12,8 +25,28 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.1.0-alpha.1"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+    }
+
+    signingConfigs {
+        if (signing != null) {
+            create("release") {
+                val dir = file(signing.getProperty("dir"))
+                val password = dir.resolve(signing.getProperty("passwordFile")).readText().trim()
+                storeFile = dir.resolve(signing.getProperty("storeFile"))
+                storeType = "pkcs12"
+                storePassword = password
+                keyAlias = signing.getProperty("keyAlias")
+                keyPassword = password
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.findByName("release")
+        }
     }
 
     buildFeatures {

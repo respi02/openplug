@@ -1,0 +1,13 @@
+<p>OpenPlug keeps the DataPlug Bluetooth OBD dongle useful after its original app, Connect LITE, was retired. It talks to the dongle in your car directly over Bluetooth, using the PIN printed on the dongle's label. There is no account, no server and no cloud: your trips stay on your phone.</p>
+<p><b>What it does</b></p>
+<ul>
+<li><b>Car:</b> speed, engine speed, fuel, battery, coolant, oil and outside temperature, odometer and the service counters, live while connected and the last known values when the car is away.</li>
+<li><b>Trips:</b> a trip log built from the live values (distance, time, average speed, fuel used), with refuels in between. Trips can be filed as business or private with a note, exported as CSV, or deleted.</li>
+<li><b>Routes (optional):</b> with GPS switched on, each trip gets its route on an OpenStreetMap map, and the app remembers where the car is parked.</li>
+<li><b>Addresses (optional):</b> street addresses of trip starts and ends, from the phone's geocoder or OpenStreetMap Nominatim.</li>
+<li><b>Hands-off:</b> once connected, the app waits for the car in the background and reconnects by itself when the ignition comes on.</li>
+<li><b>Service reminder:</b> with the service interval of your car, it counts down to the next service.</li>
+<li>Erase all data with one button.</li>
+</ul>
+<p>OpenPlug is an independent interoperability project for hardware you own. It contains no code, firmware, keys or trademarks of the vehicle or dongle maker, and is not affiliated with or endorsed by them.</p>
+<p>This is an early pre-release: the protocol has worked with a real dongle, but the trip log has not yet been tried on a real drive.</p>

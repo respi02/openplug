@@ -64,6 +64,7 @@ import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.CopyrightOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 
@@ -94,7 +95,10 @@ fun TripDetail(trip: TripRecord, onBack: () -> Unit) {
             Text(km(shown.distanceKm), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
             val from = shown.startAddress?.ifEmpty { null }
             val to = shown.endAddress?.ifEmpty { null }
-            (if (from != null && to != null) "$from → $to" else from ?: to)?.let { Text(it) }
+            (if (from != null && to != null) "$from → $to" else from ?: to)?.let {
+                Text(it)
+                if (Addresses.fromOpenStreetMap) Caption(Addresses.ATTRIBUTION)
+            }
         }
 
         if (route.size >= 2) {
@@ -242,6 +246,11 @@ private fun mapView(context: Context, interactive: Boolean): MapView {
     }
 }
 
+/** The map data's attribution, which the OpenStreetMap tile usage policy requires; added last, so it stays on top. */
+private fun MapView.attribute() {
+    overlays += CopyrightOverlay(context)
+}
+
 /** A plain round map marker: filled for the end / the car, hollow for the start. */
 private fun dot(context: Context, color: Int, filled: Boolean): GradientDrawable {
     val d = context.resources.displayMetrics.density
@@ -276,6 +285,7 @@ private fun RouteMap(route: List<RoutePoint>, modifier: Modifier) {
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 }
             }
+            map.attribute()
             map.post { map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points).increaseByScale(1.3f), false) }
             map.invalidate()
         },
@@ -309,6 +319,7 @@ fun ParkedCard(parked: ParkedAt) {
                     icon = dot(map.context, color, filled = true)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 }
+                map.attribute()
                 map.controller.setZoom(17.0)
                 map.controller.setCenter(at)
                 map.invalidate()
@@ -322,7 +333,10 @@ fun ParkedCard(parked: ParkedAt) {
                 null
             }
         }
-        address?.ifEmpty { null }?.let { Text(it, Modifier.padding(top = 8.dp)) }
+        address?.ifEmpty { null }?.let {
+            Text(it, Modifier.padding(top = 8.dp))
+            if (Addresses.fromOpenStreetMap) Caption(Addresses.ATTRIBUTION)
+        }
         TextButton(
             contentPadding = PaddingValues(0.dp),
             onClick = {

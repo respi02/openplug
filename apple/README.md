@@ -42,6 +42,12 @@ open OpenPlug.xcodeproj      # run the "OpenPlug" scheme on My Mac or an iPhone
 signing team selected for the target (a free personal team works; the phone then has
 to trust the developer profile under Settings → General → VPN & Device Management).
 
+**Release build for sideloading:** `./make-ipa.sh` builds an unsigned
+`build/OpenPlug.ipa` (Release configuration) for AltStore or SideStore, which sign it
+with each user's own Apple ID. `./make-altstore-source.py <tag> "<notes>"` then writes
+the repository's `altstore.json`, pointing at `OpenPlug.ipa` attached to the GitHub
+release `<tag>`; commit it after the release is published.
+
 Command-line client:
 
 ```sh

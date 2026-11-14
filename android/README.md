@@ -53,6 +53,15 @@ cd android
 `build-core.sh` outputs are build products (gitignored): the native libraries and
 the UniFFI-generated `com/openplug/core/openplug_core.kt`.
 
+**Release build:** `./gradlew assembleRelease` →
+`app/build/outputs/apk/release/app-release.apk`. It is signed when
+`../captures/release-signing.properties` exists (or the file named in
+`OPENPLUG_SIGNING`): `storeFile`, `keyAlias` and `passwordFile`, paths relative to
+that file. That key never enters the repository. Without it the APK is unsigned, the
+way F-Droid builds it to sign with its own key. Release builds have no fake dongle
+and record no values unless switched on. Store texts for IzzyOnDroid/F-Droid are in
+[`fastlane/metadata/android`](../fastlane/metadata/android/).
+
 ## Try it without a car
 
 ```sh
@@ -133,6 +142,10 @@ geocoder when `Geocoder.isPresent()` (phones with Google services), otherwise
 OpenStreetMap's [Nominatim](https://nominatim.org/) at most once a second, as its
 usage policy asks. Either way the positions of the trip ends leave the phone; the
 switch says so. Found addresses are stored in the trip log.
+
+Both OpenStreetMap services ask for attribution: the maps carry osmdroid's
+"© OpenStreetMap contributors" overlay, and addresses from Nominatim are captioned
+"Addresses © OpenStreetMap contributors".
 
 ## Permissions
 `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` / `ACCESS_BACKGROUND_LOCATION` and

@@ -1,0 +1,44 @@
+{
+  "name": "OpenPlug",
+  "identifier": "org.openplug.source",
+  "subtitle": "Open-source app for the DataPlug OBD dongle",
+  "description": "Trip log and live values for the DataPlug OBD dongle, after the original Connect LITE app was retired. Talks to the dongle locally over Bluetooth with the PIN from its label: no account, no server. Open source (MIT). Not affiliated with the vehicle or dongle maker.",
+  "iconURL": "https://raw.githubusercontent.com/respi02/openplug/main/apple/App/Assets.xcassets/AppIcon.appiconset/ios-1024.png",
+  "website": "https://github.com/respi02/openplug",
+  "tintColor": "#0B6E99",
+  "apps": [
+    {
+      "name": "OpenPlug",
+      "bundleIdentifier": "org.openplug.app",
+      "developerName": "OpenPlug contributors",
+      "subtitle": "Trip log for the DataPlug OBD dongle",
+      "localizedDescription": "Trip log and live values for the DataPlug OBD dongle, after the original Connect LITE app was retired. Talks to the dongle locally over Bluetooth with the PIN from its label: no account, no server. Open source (MIT). Not affiliated with the vehicle or dongle maker.",
+      "iconURL": "https://raw.githubusercontent.com/respi02/openplug/main/apple/App/Assets.xcassets/AppIcon.appiconset/ios-1024.png",
+      "tintColor": "#0B6E99",
+      "category": "utilities",
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "buildVersion": "1",
+          "date": "2026-11-14",
+          "localizedDescription": "First pre-release. Not yet tried on a real drive: expect rough edges.",
+          "downloadURL": "https://github.com/respi02/openplug/releases/download/v0.1.0-alpha.1/OpenPlug.ipa",
+          "size": 917061,
+          "minOSVersion": "17.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSBluetoothAlwaysUsageDescription": "OpenPlug talks to your DataPlug dongle over Bluetooth to read your car's values.",
+          "NSLocalNetworkUsageDescription": "Debug builds can connect to a fake dongle running on a computer on your network.",
+          "NSLocationAlwaysAndWhenInUseUsageDescription": "OpenPlug records the route of your trips and where the car is parked, also when it connects to the car in the background. The position stays on this device unless you turn on addresses for trips.",
+          "NSLocationUsageDescription": "OpenPlug records the route of your trips and where the car is parked. The position stays on this device unless you turn on addresses for trips.",
+          "NSLocationWhenInUseUsageDescription": "OpenPlug records the route of your trips and where the car is parked. The position stays on this device unless you turn on addresses for trips."
+        }
+      }
+    }
+  ],
+  "news": []
+}

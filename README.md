@@ -139,6 +139,25 @@ BluetoothSppTransport             CoreBluetoothTransport
 | `transport` | the byte-channel trait, an adapter for any `Read + Write`, a test pipe |
 | `dtp` | a framing found in the vendor library; not used on the wire by either transport |
 
+## Install (pre-release)
+
+Builds are attached to the [Releases](https://github.com/respi02/openplug/releases).
+They are **early pre-releases**: the protocol has worked with a real dongle, the trip
+log has not yet been tried on a real drive.
+
+**Android 8 or newer:** download `OpenPlug-<version>.apk` from a release and open it
+(allow your browser or file manager to install apps). For updates, add this
+repository to [Obtainium](https://github.com/ImranR98/Obtainium). Release APKs are
+signed with the OpenPlug key, certificate SHA-256
+`D1:92:C3:55:A0:6E:33:F7:21:7D:92:76:0C:08:53:30:2C:45:0B:14:F6:41:A4:78:13:8A:73:92:C4:E7:51:7F`.
+
+**iPhone, iOS 17 or newer:** sideload with [AltStore](https://altstore.io) or
+[SideStore](https://sidestore.io): add the source
+`https://raw.githubusercontent.com/respi02/openplug/main/altstore.json`, or open
+`OpenPlug.ipa` from a release in one of them. They sign the app with your own Apple
+ID; with a free Apple ID it has to be refreshed every 7 days. (AltStore PAL in the EU
+needs a paid Apple developer account and Apple's notarization — not yet.)
+
 ## Build & run
 
 **Core, offline (no dongle needed):**

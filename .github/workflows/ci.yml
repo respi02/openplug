@@ -56,9 +56,9 @@ jobs:
       - name: Build the core and the Kotlin bindings
         # the runner image comes with the Android SDK and a current NDK
         run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" android/build-core.sh
-      - name: Build the app
+      - name: Build the app (debug, and release unsigned as F-Droid builds it)
         working-directory: android
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug assembleRelease
 
   apple:
     name: iOS and macOS app

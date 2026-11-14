@@ -19,6 +19,12 @@ import java.util.Locale
 object Addresses {
     private const val TAG = "OpenPlug"
     private val cache = HashMap<String, String>()
+
+    /** Credit owed to OpenStreetMap wherever addresses from Nominatim are shown (its usage policy). */
+    const val ATTRIBUTION = "Addresses © OpenStreetMap contributors"
+
+    /** Whether addresses come from OpenStreetMap (the phone has no geocoder of its own). */
+    val fromOpenStreetMap: Boolean get() = !Geocoder.isPresent()
     private var lastNominatimMs = 0L
 
     /**
