@@ -9,6 +9,9 @@ import com.openplug.core.Dongle
 import com.openplug.core.DongleException
 import com.openplug.core.JournalException
 import com.openplug.core.JournalTotals
+import com.openplug.core.LastReading
+import com.openplug.core.ParkedAt
+import com.openplug.core.RoutePoint
 import com.openplug.core.Reading
 import com.openplug.core.RecordingException
 import com.openplug.core.RefuelRecord
@@ -39,6 +42,12 @@ data class JournalSnapshot(
     val trips: List<TripRecord> = emptyList(),
     val refuels: List<RefuelRecord> = emptyList(),
     val totals: JournalTotals = JournalTotals(0u, 0.0, 0uL, 0.0),
+    /** The last known value of every data object, for showing the car while it is away. */
+    val last: List<LastReading> = emptyList(),
+    /** True while a trip is being recorded right now. */
+    val tripRunning: Boolean = false,
+    /** Where the car was when the link last dropped. */
+    val parked: ParkedAt? = null,
 )
 
 /**
@@ -322,12 +331,27 @@ object Session {
     ) {
         t.open()
         _state.value = LinkState.Connecting("Authenticating…")
+        try {
+            pump(app, t, pin, recorder, onConnected)
+        } finally {
+            PositionFeed.stop(app)
+        }
+    }
+
+    private fun pump(
+        app: Context,
+        t: DongleTransport,
+        pin: String,
+        recorder: ValueRecorder?,
+        onConnected: () -> Unit,
+    ) {
         Dongle.connect(t, pin).use { dongle ->
             dongle.subscribeDefaults()
             onConnected()
             trips?.onConnected(now())
             recorder?.onConnected(now())
             _state.value = LinkState.Connected
+            PositionFeed.start(app)
             val latest = LinkedHashMap<UInt, Reading>()
             var awakeUntil = 0L
             while (true) {
@@ -365,9 +389,20 @@ object Session {
         synchronized(lock) { wakeLock }?.let { if (it.isHeld) it.release() }
     }
 
+    /** The route of the trip that started at [startMs]; empty if none was recorded. */
+    fun route(startMs: ULong): List<RoutePoint> = trips?.track(startMs) ?: emptyList()
+
+    /** A position fix from the phone, while the car is connected. */
+    internal fun onPosition(lat: Double, lon: Double) {
+        trips?.onPosition(lat, lon, now())
+    }
+
+    /** The finished trips as CSV text, or null when there is no trip log. */
+    fun exportCsv(): String? = trips?.exportCsv()
+
     private fun publishJournal() {
         val j = trips ?: return
-        _journal.value = JournalSnapshot(j.activeTrip(), j.trips(), j.refuels(), j.totals())
+        _journal.value = JournalSnapshot(j.activeTrip(), j.trips(), j.refuels(), j.totals(), j.lastValues(), j.tripRunning(), j.parked())
     }
 
     private fun now(): ULong = System.currentTimeMillis().toULong()

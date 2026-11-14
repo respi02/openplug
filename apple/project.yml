@@ -3,8 +3,8 @@ name: OpenPlug
 options:
   bundleIdPrefix: org.openplug
   deploymentTarget:
-    iOS: "16.0"
-    macOS: "13.0"
+    iOS: "17.0"
+    macOS: "14.0"
 packages:
   OpenPlug:
     path: .
@@ -27,7 +27,10 @@ targets:
         # debug builds can reach the fake dongle on another machine
         NSLocalNetworkUsageDescription: Debug builds can connect to a fake dongle running on a computer on your network.
         # keep the BLE session (and trip recording) alive in the background
-        UIBackgroundModes: [bluetooth-central]
+        NSLocationWhenInUseUsageDescription: OpenPlug records the route of your trips and where the car is parked. The position stays on this device.
+        NSLocationAlwaysAndWhenInUseUsageDescription: OpenPlug records the route of your trips and where the car is parked, also when it connects to the car in the background. The position stays on this device.
+        NSLocationUsageDescription: OpenPlug records the route of your trips and where the car is parked. The position stays on this device.
+        UIBackgroundModes: [bluetooth-central, location]
         # show Documents (the value recordings) in the Files app
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

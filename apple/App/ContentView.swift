@@ -3,263 +3,106 @@ import SwiftUI
 
 struct ContentView: View {
     // `--trips` opens on the Trips tab (handy for screenshots and scripted checks)
-    @State private var tab = CommandLine.arguments.contains("--trips") ? 1 : 0
+    @State private var tab = CommandLine.arguments.contains("--trips") ? 1
+        : CommandLine.arguments.contains("--settings") ? 2 : 0
 
     var body: some View {
         TabView(selection: $tab) {
-            NavigationStack { LiveTab() }
-                .tabItem { Label("Live", systemImage: "gauge.with.dots.needle.50percent") }
+            CarTab(onSetUp: { tab = 2 })
+                .tabItem { Label("Car", systemImage: "car.fill") }
                 .tag(0)
-            NavigationStack { TripsTab() }
+            TripsTab()
                 .tabItem { Label("Trips", systemImage: "road.lanes") }
                 .tag(1)
+            SettingsTab()
+                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(2)
         }
+        .tint(Palette.accent)
     }
 }
 
-// MARK: - Live values
+// MARK: - the look, shared by the tabs
 
-private struct LiveTab: View {
-    @EnvironmentObject private var model: DongleModel
+/// One calm look: a quiet ground, white panels, one petrol-blue accent, amber for
+/// refuels and reminders.
+enum Palette {
+    static let accent = dynamic(light: 0x0B6E99, dark: 0x7CC7E8)
+    static let accentSoft = dynamic(light: 0xE1EFF5, dark: 0x0D3A4D)
+    static let onAccentSoft = dynamic(light: 0x08506F, dark: 0xCDEBF7)
+    static let ground = dynamic(light: 0xF4F5F2, dark: 0x101315)
+    static let panel = dynamic(light: 0xFFFFFF, dark: 0x1A1E21)
+    static let line = dynamic(light: 0xE2E5E0, dark: 0x2C3136)
+    static let chip = dynamic(light: 0xE8EBE6, dark: 0x2A2F33)
+    static let quiet = dynamic(light: 0x4D5550, dark: 0xB7BDB8)
+    static let hero = dynamic(light: 0x15181C, dark: 0x23282C)
+    static let onHero = Color(hex: 0xF4F5F2)
+    static let amber = dynamic(light: 0x8A4A07, dark: 0xF0B46A)
+    static let amberSoft = dynamic(light: 0xFBEBD6, dark: 0x4A2C06)
 
-    var body: some View {
-        Group {
-            if case .connected(let name) = model.state {
-                LiveView().navigationTitle(name)
-            } else {
-                SetupView().navigationTitle("OpenPlug")
-            }
-        }
-        .toolbar {
-            if model.isActive {
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Disconnect") { model.disconnect() }
-                }
-            }
-        }
-    }
-}
-
-private struct SetupView: View {
-    @EnvironmentObject private var model: DongleModel
-    @State private var pin = Keychain.pin ?? ""
-    // on by default in debug builds, which are the ones taken on test drives
-    #if DEBUG
-    @AppStorage("recordValues") private var record = true
-    #else
-    @AppStorage("recordValues") private var record = false
-    #endif
-    #if DEBUG
-    @State private var useDemo = false
-    @AppStorage("demoHost") private var demoHost = "127.0.0.1"
-    #endif
-
-    private var target: Target {
-        #if DEBUG
-        if useDemo { return .demo(host: demoHost.trimmingCharacters(in: .whitespaces)) }
-        #endif
-        return .bluetooth
-    }
-
-    var body: some View {
-        Form {
-            #if DEBUG
-            Section {
-                Picker("Connect to", selection: $useDemo) {
-                    Text("Dongle (Bluetooth)").tag(false)
-                    Text("Fake dongle (TCP, port 4455)").tag(true)
-                }
-                if useDemo {
-                    TextField("Host running fake_dongle", text: $demoHost)
-                        .autocorrectionDisabled()
-                    #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.numbersAndPunctuation)
-                    #endif
-                }
-            } footer: {
-                if useDemo {
-                    Text("127.0.0.1 works on a Mac and in the simulator. On an iPhone enter the address of the computer running fake_dongle --listen 0.0.0.0:4455, on the same network.")
-                }
-            }
-            .disabled(model.isActive)
-            #endif
-            Section {
-                SecureField("PIN from the dongle label", text: $pin)
-                    .autocorrectionDisabled()
-                #if os(iOS)
-                    .textInputAutocapitalization(.characters)
-                #endif
-            } footer: {
-                Text("The PIN is printed on the dongle. It stays on this device, in the Keychain.")
-            }
-            .disabled(model.isActive)
-            Section {
-                Toggle("Record values", isOn: $record)
-            } footer: {
-                Text("Saves what the dongle sends (no position, no VIN) to a file in Files › OpenPlug › Recordings, to replay the drive later.")
-            }
-            .disabled(model.isActive)
-            Section {
-                if !model.isActive {
-                    Button("Connect") {
-                        let trimmed = pin.trimmingCharacters(in: .whitespacesAndNewlines)
-                        Keychain.pin = trimmed
-                        model.connect(to: target, pin: trimmed, record: record)
-                    }
-                    .disabled(pin.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-                switch model.state {
-                case .connecting(let what), .waiting(let what):
-                    HStack {
-                        ProgressView()
-                        Text(what).foregroundStyle(.secondary).padding(.leading, 8)
-                    }
-                case .failed(let message):
-                    Text(message).foregroundStyle(.red)
-                default:
-                    EmptyView()
-                }
-            } footer: {
-                if model.isActive {
-                    Text("OpenPlug keeps trying until the dongle answers — it only does when the ignition is on.")
-                }
-            }
-        }
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
-    }
-}
-
-private struct LiveView: View {
-    @EnvironmentObject private var model: DongleModel
-
-    var body: some View {
-        List {
-            if let file = model.recording {
-                Label("Recording to \((file as NSString).lastPathComponent)", systemImage: "record.circle")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            if model.readings.isEmpty {
-                Text("Waiting for the first values…").foregroundStyle(.secondary)
-            }
-            ForEach(model.readings, id: \.url) { r in
-                HStack {
-                    Text(r.name ?? String(format: "0x%06x", r.url))
-                    Spacer()
-                    Text(format(r)).monospacedDigit().foregroundStyle(r.available ? .primary : .secondary)
-                }
-            }
-        }
+    private static func dynamic(light: UInt32, dark: UInt32) -> Color {
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
+        Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(Color(hex: dark)) : UIColor(Color(hex: light)) })
+        #else
+        Color(NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return NSColor(Color(hex: isDark ? dark : light))
+        })
         #endif
     }
+}
 
-    private func format(_ r: Reading) -> String {
-        guard r.available else { return "—" }
-        let number = r.value.formatted(.number.precision(.fractionLength(Int(r.precision))))
-        return r.unit.map { "\(number) \($0)" } ?? number
+extension Color {
+    init(hex: UInt32) {
+        self.init(red: Double((hex >> 16) & 0xff) / 255, green: Double((hex >> 8) & 0xff) / 255, blue: Double(hex & 0xff) / 255)
     }
 }
 
-// MARK: - Trips
-
-private struct TripsTab: View {
-    @EnvironmentObject private var model: DongleModel
+/// A white, bordered, rounded panel.
+struct Panel<Content: View>: View {
+    @ViewBuilder var content: Content
 
     var body: some View {
-        let j = model.journal
-        List {
-            if let problem = model.journalProblem {
-                Section {
-                    Text("Trips are not being recorded: \(problem)").foregroundStyle(.red)
-                }
-            }
-            if let trip = j.active {
-                Section("Current trip") { TripRow(trip: trip, running: true) }
-            }
-            if j.totals.trips > 0 {
-                Section("All trips") {
-                    LabeledContent("Trips", value: "\(j.totals.trips)")
-                    LabeledContent("Distance", value: km(j.totals.distanceKm))
-                    LabeledContent("Time driving", value: duration(j.totals.movingS))
-                    if j.totals.fuelUsedL > 0 {
-                        LabeledContent("Fuel used", value: litres(j.totals.fuelUsedL))
-                    }
-                }
-                Section("History") {
-                    ForEach(j.trips, id: \.startMs) { TripRow(trip: $0, running: false) }
-                }
-            }
-            if !j.refuels.isEmpty {
-                Section("Refuels") {
-                    ForEach(j.refuels, id: \.timeMs) { r in
-                        LabeledContent {
-                            Text("+" + litres(r.addedL)).monospacedDigit()
-                        } label: {
-                            Text(date(r.timeMs))
-                            if let odo = r.odometerKm {
-                                Text("at \(odo.formatted(.number.precision(.fractionLength(0)))) km")
-                            }
-                        }
-                    }
-                }
-            }
-            if j.active == nil && j.totals.trips == 0 && j.refuels.isEmpty && model.journalProblem == nil {
-                Text("No trips yet. A trip starts when the car moves while OpenPlug is connected, and ends 15 minutes after the connection drops.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle("Trips")
+        VStack(alignment: .leading, spacing: 0) { content }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.panel, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Palette.line))
     }
 }
 
-private struct TripRow: View {
-    let trip: TripRecord
-    let running: Bool
+/// A small caption above a panel or beside a value.
+struct Caption: View {
+    let text: String
+    init(_ text: String) { self.text = text }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(date(trip.startMs)).font(.headline)
-                Spacer()
-                Text(km(trip.distanceKm)).font(.headline).monospacedDigit()
-            }
-            Text(details).font(.subheadline).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var details: String {
-        var parts = [duration(trip.movingS) + (running ? " so far" : "")]
-        if trip.movingS > 0 {
-            parts.append("avg \(trip.avgSpeedKmh.formatted(.number.precision(.fractionLength(0)))) km/h")
-        }
-        parts.append("max \(trip.maxSpeedKmh.formatted(.number.precision(.fractionLength(0)))) km/h")
-        if let c = trip.consumptionLPer100km {
-            parts.append("\(c.formatted(.number.precision(.fractionLength(1))))\u{a0}l/100\u{a0}km")
-        } else if let f = trip.fuelUsedL, f > 0 {
-            parts.append(litres(f))
-        }
-        return parts.joined(separator: " · ")
+        Text(text).font(.footnote.weight(.semibold)).foregroundStyle(Palette.quiet)
     }
 }
 
-private func km(_ v: Double) -> String {
-    v.formatted(.number.precision(.fractionLength(v < 100 ? 1 : 0))) + " km"
+struct ScreenTitle: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text).font(.system(size: 30, weight: .bold, design: .rounded))
+    }
 }
 
-private func litres(_ v: Double) -> String {
-    v.formatted(.number.precision(.fractionLength(1))) + " l"
+func number(_ v: Double, _ decimals: Int) -> String {
+    v.formatted(.number.precision(.fractionLength(decimals)))
 }
 
-private func duration(_ seconds: UInt64) -> String {
+func km(_ v: Double) -> String { number(v, v < 100 ? 1 : 0) + " km" }
+
+func litres(_ v: Double) -> String { number(v, 1) + " l" }
+
+func duration(_ seconds: UInt64) -> String {
     let m = (seconds + 30) / 60
     return m < 60 ? "\(m) min" : "\(m / 60) h \(m % 60) min"
 }
 
-private func date(_ ms: UInt64) -> String {
-    Date(timeIntervalSince1970: Double(ms) / 1000).formatted(date: .abbreviated, time: .shortened)
+func clock(_ ms: UInt64) -> String {
+    Date(timeIntervalSince1970: Double(ms) / 1000).formatted(date: .omitted, time: .shortened)
 }

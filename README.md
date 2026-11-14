@@ -68,12 +68,14 @@ Everything below has run against a real dongle in a real car (2026-11-13).
 | iOS / macOS app (SwiftUI) | [`apple/App/`](apple/App/) | ✅ live values on an iPhone over BLE; also runs on macOS |
 | Desktop harness + fake dongle | `core/examples/` | ✅ for development without a car |
 
-What OpenPlug does today: **live values**, a **trip log** (distance, time, speeds,
-fuel) with **refuel detection**, automatic reconnection whenever the dongle is in
+What OpenPlug does today: **live values**, the car's **last known state** while it is
+away (fuel, range, odometer, service), a **trip log** (distance, time, speeds, fuel)
+with **refuel detection** and CSV export, optionally with the **route on a map** and
+the **parking place** (phone GPS, kept on the device), automatic reconnection whenever the dongle is in
 reach (also from the background, after the system ended the app, and after a reboot),
 and recording in the background. The trip log and background recording are new and
 have so far only been exercised against stand-ins for the dongle, not on a real drive.
-Not there yet: positions and maps, driving score, the warning-light and AdBlue groups,
+Not there yet: driving score, the warning-light and AdBlue groups,
 the dongle's token authentication (the PIN is used on every connect), and the raw
 OBD/UDS request path. What the original app offered, feature by feature, is in
 [`original_app_features.md`](research/notes/original_app_features.md).
@@ -96,7 +98,7 @@ BluetoothSppTransport             CoreBluetoothTransport
 | `srp`, `tls_prf`, `tls_handshake`, `tls_record`, `tls_client` | the TLS-SRP tunnel: SRP-6a (RFC 5054), TLS 1.2 with Encrypt-then-MAC (RFC 7366) and Extended Master Secret (RFC 7627), AES-128-CBC + HMAC-SHA1. Pure Rust, no C dependency |
 | `protobuf` | schema-less protobuf wire codec |
 | `dongle` | the application protocol: Subscribe request, DataElement decode, signal catalog |
-| `journal` | trips and refuels from the value stream (start, pause, resume, finish; JSON file) |
+| `journal` | trips and refuels from the value stream (start, pause, resume, finish; JSON file), the car's last known values, and — from position fixes — each trip's route and the parking place |
 | `recording` | records the value stream to a file and replays it into a journal |
 | `link` | the read API: connect → authenticate → subscribe → stream of values |
 | `ffi` | the UniFFI facade for Kotlin and Swift (feature `ffi`) |
@@ -156,8 +158,10 @@ the link — stop it while using OpenPlug.
 
 ## Roadmap
 
-1. Prove the trip log on real drives; then vehicle status that persists while
-   disconnected, positions (trip start/end, parking), trip notes and export.
+1. Prove the trip log, routes and background behaviour on real drives; then trip
+   notes and types, and addresses for trip ends.
+   - iOS **Live Activities**: the trip in progress on the lock screen and in the
+     Dynamic Island.
 2. More of the protocol: warning lights, AdBlue, token authentication.
 3. Polish on both apps: reconnecting, background behaviour, distribution.
 4. More cars: the catalog so far reflects one vehicle.

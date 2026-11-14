@@ -34,6 +34,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
+    // OpenStreetMap view for trip routes: no API key, no Google services.
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     // Runtime for the UniFFI-generated Kotlin bindings (see build-core.sh).
     implementation("net.java.dev.jna:jna:5.19.1@aar")
 }

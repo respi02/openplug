@@ -67,6 +67,12 @@ struct JournalSnapshot: Equatable {
     var trips: [TripRecord] = []
     var refuels: [RefuelRecord] = []
     var totals = JournalTotals(trips: 0, distanceKm: 0, movingS: 0, fuelUsedL: 0)
+    /// The last known value of every data object, for showing the car while it is away.
+    var last: [LastReading] = []
+    /// True while a trip is being recorded right now.
+    var tripRunning = false
+    /// Where the car was when the link last dropped.
+    var parked: ParkedAt?
 }
 
 /// Shared between the UI and the session thread: lets the user stop a session that
@@ -128,6 +134,7 @@ final class DongleModel: ObservableObject {
         DongleCentral.shared.activate() // so iOS can restore its connections
         #endif
         Keychain.upgradeAccessibility()
+        setUpLocation()
         openJournal(demo: false)
         resumeIfWanted()
     }
@@ -215,6 +222,61 @@ final class DongleModel: ObservableObject {
 
     var isActive: Bool { control != nil }
 
+    /// Whether a PIN has been entered (the app is set up).
+    var hasPin: Bool { !(Keychain.pin ?? "").isEmpty }
+
+    // MARK: routes (GPS)
+
+    private let location = LocationFeed()
+
+    /// Whether the user wants trips to carry a route. Off until switched on in Settings.
+    @Published var recordsRoutes = UserDefaults.standard.bool(forKey: "recordRoutes") {
+        didSet {
+            UserDefaults.standard.set(recordsRoutes, forKey: "recordRoutes")
+            if recordsRoutes && !location.isAuthorized { location.requestPermission() }
+            syncLocation()
+        }
+    }
+
+    /// What the system currently allows, for the note under the switch.
+    var routePermission: String {
+        switch location.status {
+        case .notDetermined: return "OpenPlug will ask for your location."
+        case .denied, .restricted: return "Location is off for OpenPlug — allow it in the system settings."
+        default:
+            return location.worksInBackground
+                ? "Recorded while the car is connected."
+                : "Allowed only while the app is in use. For drives recorded without opening the app, set Location to Always in the system settings."
+        }
+    }
+
+    private func setUpLocation() {
+        location.onFix = { [weak self] lat, lon in
+            self?.trips?.onPosition(lat: lat, lon: lon, nowMs: nowMs())
+        }
+        location.onAuthorizationChange = { [weak self] in
+            self?.objectWillChange.send()
+            self?.syncLocation()
+        }
+    }
+
+    /// Positions are taken only while the car is connected.
+    private func syncLocation() {
+        if recordsRoutes, case .connected = state { location.start() } else { location.stop() }
+    }
+
+    /// The route of a trip; empty if none was recorded.
+    func route(of trip: TripRecord) -> [RoutePoint] { trips?.track(startMs: trip.startMs) ?? [] }
+
+    /// The finished trips as CSV text, or nil when there is no trip log.
+    func exportCsv() -> String? { trips?.exportCsv() }
+
+    /// How many value recordings are stored.
+    func recordingCount() -> Int {
+        guard let dir = try? Self.recordingsDirectory() else { return 0 }
+        return (try? FileManager.default.contentsOfDirectory(atPath: dir.path).count) ?? 0
+    }
+
     /// Starts a session. With `record`, the value stream of the whole session is also
     /// written to a new file, to replay the drive later (`fake_dongle --replay`, the
     /// `replay` example).
@@ -255,7 +317,9 @@ final class DongleModel: ObservableObject {
 
     private func apply(_ update: Update) {
         switch update {
-        case .state(let s): state = s
+        case .state(let s):
+            state = s
+            syncLocation()
         case .readings(let r): readings = r
         case .journal(let j): journal = j
         }
@@ -269,6 +333,7 @@ final class DongleModel: ObservableObject {
         control = nil
         recording = nil
         state = end
+        syncLocation()
         if case .failed = end { wantedTarget = nil } // retrying cannot help
         if let trips { journal = Self.snapshot(trips) }
         #if DEBUG
@@ -277,7 +342,8 @@ final class DongleModel: ObservableObject {
     }
 
     private nonisolated static func snapshot(_ j: TripJournal) -> JournalSnapshot {
-        JournalSnapshot(active: j.activeTrip(), trips: j.trips(), refuels: j.refuels(), totals: j.totals())
+        JournalSnapshot(active: j.activeTrip(), trips: j.trips(), refuels: j.refuels(), totals: j.totals(),
+                        last: j.lastValues(), tripRunning: j.tripRunning(), parked: j.parked())
     }
 
     // MARK: the session thread

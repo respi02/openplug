@@ -101,6 +101,16 @@ cd apple && swift run openplug-fake-ble         # advertise it over BLE from the
 
 Stopping `openplug-fake-ble` looks to the phone like the ignition going off.
 
+## Routes and maps
+
+With **Record routes** on (Settings; off by default), the app takes the phone's
+position while the car is connected and the core stores each trip's route and the
+place the car was left. The position never leaves the device and is not written to
+value recordings. Trip detail (MapKit route, speed chart) and the parking card use it.
+"Always" location is needed for drives recorded after iOS resumed the session in the
+background; the app has the `location` background mode for that. Needs iOS 17 /
+macOS 14.
+
 ## The BLE transport
 
 Details and the investigation: [`research/notes/ble_transport.md`](../research/notes/ble_transport.md).

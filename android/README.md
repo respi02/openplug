@@ -86,7 +86,20 @@ app.
   ones), so without it a resume from a reboot or from the dongle being seen can be
   refused; the sticky restart worked without it on our phone.
 
+## Routes and maps
+
+With **Record routes** on (Settings; off by default), the app takes the phone's
+position while the car is connected — from the platform location service, no Google
+services — and the core stores each trip's route and the place the car was left. The
+position never leaves the phone and is not written to value recordings. Trip detail
+and the parking card draw OpenStreetMap tiles with
+[osmdroid](https://github.com/osmdroid/osmdroid) (no API key; tiles are fetched from
+the network and cached). "Allow all the time" is needed for drives recorded after the
+session was resumed in the background.
+
 ## Permissions
+`ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` / `ACCESS_BACKGROUND_LOCATION` and
+`INTERNET` only serve routes and maps (above) and are asked for when that is switched on.
 `BLUETOOTH_CONNECT` (Android 12+) to talk to the bonded dongle; `BLUETOOTH_SCAN`
 (`neverForLocation`) to notice it advertising, optional (without it only timed
 retries). `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_CONNECTED_DEVICE` and

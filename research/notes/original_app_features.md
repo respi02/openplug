@@ -21,10 +21,10 @@ vehicle data, challenges/trophies, service partners and appointments.
 | **Live values** | latest reading per data object | dongle | ✅ |
 | **Vehicle status** | odometer, fuel, average consumption, battery voltage, days/km since service, next service and oil change — each with a timestamp, so the last values show while disconnected | dongle | ◐ live only; not kept while disconnected |
 | **Trips (logbook)** | start/end time, distance, end odometer, duration, start/end fuel and average consumption, start/end position and address, a route map, private/business type and a purpose note, manual trips | dongle + GPS | ◐ time, distance, fuel, speeds; no position, type or notes |
-| **Trip route / samples** | per-sample points along a trip: position, altitude, speed, rpm, acceleration, coolant, oil temperature, boost pressure, intake air temperature, throttle | dongle + GPS | ✗ |
+| **Trip route / samples** | per-sample points along a trip: position, altitude, speed, rpm, acceleration, coolant, oil temperature, boost pressure, intake air temperature, throttle | dongle + GPS | ◐ position and speed |
 | **Driving score ("smooth drive")** | per trip: counts of good/bad samples for rpm, acceleration, braking, speed, coolant temperature, and an aggregated result, against a table of thresholds | dongle | ✗ |
 | **Refuelling stops** | time, litres added, fuel level after, odometer, position (taken from the last parking position), price and station entered by the user, consumption since the last stop | dongle (+ GPS) | ◐ detection, litres, odometer |
-| **Parking position** | last GPS fix when the link dropped, with address and a map | GPS | ✗ |
+| **Parking position** | last GPS fix when the link dropped, with address and a map | GPS | ✅ position and map; no address |
 | **Dashboard indicators** | warning lights by name and status | dongle (group 11) | ✗ not decoded yet |
 | **Service intervals** | days/km to next service and oil change, reminders | dongle (groups 8, 9) | ◐ shown as live values |
 | **Tyres** | type, mileage, change reminders | user input | ✗ |

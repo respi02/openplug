@@ -36,6 +36,11 @@ object Settings {
     /** On by default in debug builds, which are the ones taken on test drives. */
     fun record(context: Context): Boolean = prefs(context).getBoolean(KEY_RECORD, BuildConfig.DEBUG)
 
+    /** Whether trips should carry a route (GPS). Off until the user switches it on. */
+    fun recordRoutes(context: Context): Boolean = prefs(context).getBoolean("record_routes", false)
+
+    fun setRecordRoutes(context: Context, on: Boolean) = prefs(context).edit().putBoolean("record_routes", on).apply()
+
     fun setRecord(context: Context, on: Boolean) = prefs(context).edit().putBoolean(KEY_RECORD, on).apply()
 
     fun save(context: Context, s: SessionSettings) {

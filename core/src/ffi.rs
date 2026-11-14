@@ -189,6 +189,39 @@ pub struct TripRecord {
     pub end_odometer_km: Option<f64>,
     pub fuel_used_l: Option<f64>,
     pub consumption_l_per_100km: Option<f64>,
+    /// Where the trip began and ended, when positions were being recorded.
+    pub start: Option<GeoPoint>,
+    pub end: Option<GeoPoint>,
+}
+
+/// A place, in degrees (WGS 84).
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct GeoPoint {
+    pub lat: f64,
+    pub lon: f64,
+}
+
+impl From<crate::journal::Position> for GeoPoint {
+    fn from(p: crate::journal::Position) -> Self {
+        Self { lat: p.lat, lon: p.lon }
+    }
+}
+
+/// One point of a trip's route.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct RoutePoint {
+    pub time_ms: u64,
+    pub lat: f64,
+    pub lon: f64,
+    pub speed_kmh: f32,
+}
+
+/// Where the car was left, and when.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct ParkedAt {
+    pub lat: f64,
+    pub lon: f64,
+    pub time_ms: u64,
 }
 
 impl From<Trip> for TripRecord {
@@ -204,6 +237,8 @@ impl From<Trip> for TripRecord {
             max_rpm: t.max_rpm,
             end_odometer_km: t.end_odometer_km,
             fuel_used_l: t.fuel_used_l,
+            start: t.start_pos.map(GeoPoint::from),
+            end: t.end_pos.map(GeoPoint::from),
         }
     }
 }
@@ -215,12 +250,30 @@ pub struct RefuelRecord {
     pub added_l: f64,
     pub fuel_after_l: f64,
     pub odometer_km: Option<f64>,
+    pub position: Option<GeoPoint>,
 }
 
 impl From<&Refuel> for RefuelRecord {
     fn from(r: &Refuel) -> Self {
-        Self { time_ms: r.time_ms, added_l: r.added_l, fuel_after_l: r.fuel_after_l, odometer_km: r.odometer_km }
+        Self {
+            time_ms: r.time_ms,
+            added_l: r.added_l,
+            fuel_after_l: r.fuel_after_l,
+            odometer_km: r.odometer_km,
+            position: r.pos.map(GeoPoint::from),
+        }
     }
+}
+
+/// A remembered value: what a data object last read, and when.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct LastReading {
+    pub url: u32,
+    pub value: f32,
+    pub precision: u32,
+    pub time_ms: u64,
+    pub name: Option<String>,
+    pub unit: Option<String>,
 }
 
 /// Sums over all finished trips.
@@ -290,6 +343,60 @@ impl TripJournal {
 
     pub fn totals(&self) -> JournalTotals {
         self.inner.lock().unwrap().totals().into()
+    }
+
+    /// The last known value of every data object seen, with the time it was read, so
+    /// the car's state can be shown while it is out of reach.
+    pub fn last_values(&self) -> Vec<LastReading> {
+        self.inner
+            .lock()
+            .unwrap()
+            .last_values()
+            .iter()
+            .map(|(&url, v)| {
+                let sig = dongle::signal(url);
+                LastReading {
+                    url,
+                    value: v.value,
+                    precision: v.precision.unwrap_or(1),
+                    time_ms: v.time_ms,
+                    name: sig.map(|s| s.name.to_string()),
+                    unit: sig.map(|s| s.unit.to_string()),
+                }
+            })
+            .collect()
+    }
+
+    /// Feeds a position fix from the phone (degrees, WGS 84). See
+    /// [`crate::journal::Journal::on_position`].
+    pub fn on_position(&self, lat: f64, lon: f64, now_ms: u64) {
+        self.inner.lock().unwrap().on_position(lat, lon, now_ms);
+    }
+
+    /// The route of the trip that started at `start_ms`; empty if none was recorded.
+    pub fn track(&self, start_ms: u64) -> Vec<RoutePoint> {
+        self.inner
+            .lock()
+            .unwrap()
+            .track(start_ms)
+            .into_iter()
+            .map(|p| RoutePoint { time_ms: p.0, lat: p.1, lon: p.2, speed_kmh: p.3 })
+            .collect()
+    }
+
+    /// Where the car was when the link last dropped.
+    pub fn parked(&self) -> Option<ParkedAt> {
+        self.inner.lock().unwrap().parked().map(|f| ParkedAt { lat: f.pos.lat, lon: f.pos.lon, time_ms: f.time_ms })
+    }
+
+    /// True while a trip is being recorded (the car is connected and has moved).
+    pub fn trip_running(&self) -> bool {
+        self.inner.lock().unwrap().trip_state() == crate::journal::TripState::Running
+    }
+
+    /// The finished trips as CSV text.
+    pub fn export_csv(&self) -> String {
+        self.inner.lock().unwrap().export_csv()
     }
 }
 

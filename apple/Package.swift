@@ -4,7 +4,7 @@ import PackageDescription
 // The Rust core is linked from OpenPlugCoreFFI.xcframework; run ./build-core.sh first.
 let package = Package(
     name: "OpenPlug",
-    platforms: [.macOS(.v13), .iOS(.v16)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "OpenPlugBLE", targets: ["OpenPlugBLE"]),
         .executable(name: "openplug-cli", targets: ["openplug-cli"]),

@@ -171,3 +171,81 @@ fn the_journal_survives_a_restart_mid_trip() {
     assert!(Journal::open(&path).is_err(), "a damaged log is reported, not overwritten");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn last_values_are_remembered_and_trips_export_as_csv() {
+    let path = std::env::temp_dir().join(format!("openplug-status-{}.json", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let mut t = 1_763_100_000_000;
+    {
+        let mut j = Journal::open(&path).unwrap();
+        j.on_connected(t);
+        j.on_values(&[el(ODO, 1000.0), el(FUEL, 40.0)], t);
+        j.on_values(&[DataElement { url: RPM, state: state::NODATA, value: 0.0, precision: None }], t);
+        drive(&mut j, &mut t, 60.0, 600);
+        j.on_values(&[el(FUEL, 39.5)], t);
+        j.on_disconnected(t);
+        j.tick(t + TRIP_FINISH_AFTER_MS);
+    }
+    let j = Journal::open(&path).unwrap(); // survives a restart
+    let fuel = j.last_values()[&FUEL];
+    assert_eq!((fuel.value, fuel.time_ms), (39.5, t));
+    assert_eq!(j.last_values()[&ODO].value, 1000.0);
+    assert_eq!(j.last_values()[&RPM].value, 2000.0, "a no-data reading does not replace a good one");
+
+    let csv = j.export_csv();
+    let rows: Vec<&str> = csv.lines().collect();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].starts_with("start_utc,end_utc,distance_km"));
+    assert!(rows[1].starts_with("2025-11-14T06:00:00Z,2025-11-14T06:09:59Z,9.98,10.0,60.0,60,2000,0.50,5.0,1000"), "{}", rows[1]);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn positions_become_a_route_and_a_parking_place() {
+    let path = std::env::temp_dir().join(format!("openplug-route-{}.json", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let mut t = 1_763_200_000_000;
+    let start;
+    {
+        let mut j = Journal::open(&path).unwrap();
+        j.on_connected(t);
+        j.on_position(49.2000, 16.6000, t); // before the trip: no route yet
+        assert!(j.active_trip().is_none());
+        // drive north at 72 km/h = 20 m/s, a fix every second
+        for i in 0..300u64 {
+            j.on_values(&[el(SPEED, 72.0)], t);
+            j.on_position(49.2 + i as f64 * 20.0 / 111_320.0, 16.6, t);
+            t += 1000;
+        }
+        start = j.active_trip().unwrap().start_ms;
+        let live = j.track(start);
+        assert!((140..=150).contains(&live.len()), "thinned to one point per 2 s: {}", live.len());
+        assert_eq!(live[5].3, 72.0, "points carry the speed");
+        j.on_disconnected(t);
+        assert!((j.parked().unwrap().pos.lat - 49.2537).abs() < 1e-3);
+    }
+    let mut j = Journal::open(&path).unwrap(); // the route survives a restart
+    assert!(j.track(start).len() >= 140);
+    let trip = j.tick(t + TRIP_FINISH_AFTER_MS).expect("finished");
+    assert!((trip.start_pos.unwrap().lat - 49.2).abs() < 1e-3);
+    assert!((trip.end_pos.unwrap().lat - 49.2537).abs() < 1e-3);
+    assert!(j.track(start).len() >= 140, "and stays readable once the trip is finished");
+    assert!(j.track(12345).is_empty());
+
+    // a refuel on the next connection is placed where the car was parked
+    t += 3_600_000;
+    j.on_connected(t);
+    j.on_values(&[el(FUEL, 20.0)], t - 1); // no earlier level: nothing to compare
+    let mut j2 = Journal::in_memory();
+    j2.on_connected(t);
+    j2.on_values(&[el(FUEL, 20.0)], t);
+    j2.on_position(50.0, 14.0, t);
+    j2.on_disconnected(t + 1000);
+    j2.on_connected(t + 600_000);
+    j2.on_values(&[el(FUEL, 45.0)], t + 600_000);
+    assert_eq!(j2.refuels()[0].pos.unwrap().lat, 50.0);
+
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_dir_all(path.with_extension("tracks")).unwrap();
+}
