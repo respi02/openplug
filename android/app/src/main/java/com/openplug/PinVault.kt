@@ -41,6 +41,12 @@ internal object PinVault {
         return Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(sealed, Base64.NO_WRAP)
     }
 
+    /** Deletes the key, so a sealed PIN can never be opened again. */
+    fun forget() {
+        runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) }
+            .onFailure { Log.w(TAG, "could not delete the PIN key: ${it.javaClass.simpleName}") }
+    }
+
     /** The PIN, or null if the stored value cannot be opened (key gone, data damaged). */
     fun open(stored: String): String? = try {
         val (iv, sealed) = stored.split(':', limit = 2).map { Base64.decode(it, Base64.NO_WRAP) }

@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsTab: View {
     @EnvironmentObject private var model: DongleModel
     @State private var pin = Keychain.pin ?? ""
+    @State private var askingToErase = false
     // on by default in debug builds, which are the ones taken on test drives
     #if DEBUG
     @AppStorage("recordValues") private var record = true
@@ -71,6 +72,21 @@ struct SettingsTab: View {
                         #else
                         Text("Documents › OpenPlug Recordings")
                         #endif
+                    }
+                    Button(role: .destructive) {
+                        askingToErase = true
+                    } label: {
+                        HStack {
+                            Text(model.erasing ? "Erasing…" : "Erase all data")
+                            if model.erasing { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(model.erasing)
+                    .confirmationDialog("Erase all data?", isPresented: $askingToErase, titleVisibility: .visible) {
+                        Button("Erase", role: .destructive) { Task { await model.eraseAll() } }
+                    } message: {
+                        Text((model.isActive ? "Disconnects from the dongle, then deletes" : "Deletes")
+                            + " all trips with their routes and addresses, refuels, the car's last values and settings, value recordings, the stored PIN and every setting from this device. This cannot be undone — export the trips first if you want to keep them. Permissions stay; change those in the system settings.")
                     }
                 } header: {
                     Text("Data")

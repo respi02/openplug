@@ -91,7 +91,8 @@ Both apps have the same three tabs.
   each shows where it started and ended.
 - **Settings** — the dongle and its PIN, the car (tank size, service interval),
   running in the background, routes, addresses, value recordings, every live signal
-  the dongle streams, CSV export of the trips (with type, addresses and notes).
+  the dongle streams, CSV export of the trips (with type, addresses and notes), and
+  **erase all data** (trips, routes, recordings, the PIN and every setting) in one step.
 
 Around that:
 

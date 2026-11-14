@@ -2,19 +2,24 @@ import OpenPlugBLE
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject private var model: DongleModel
     // `--trips` opens on the Trips tab (handy for screenshots and scripted checks)
     @State private var tab = CommandLine.arguments.contains("--trips") ? 1
         : CommandLine.arguments.contains("--settings") ? 2 : 0
 
     var body: some View {
         TabView(selection: $tab) {
+            // `.id`: after "Erase all data", each tab starts over from what is stored now
             CarTab(onSetUp: { tab = 2 })
+                .id(model.erasures)
                 .tabItem { Label("Car", systemImage: "car.fill") }
                 .tag(0)
             TripsTab()
+                .id(model.erasures)
                 .tabItem { Label("Trips", systemImage: "road.lanes") }
                 .tag(1)
             SettingsTab()
+                .id(model.erasures)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(2)
         }

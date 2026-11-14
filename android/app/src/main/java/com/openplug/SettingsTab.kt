@@ -29,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -44,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -97,6 +99,13 @@ private fun targets(context: Context): List<Target> {
 
 @Composable
 fun SettingsTab() {
+    // after "Erase all data", start over with what is stored now (nothing)
+    val erasures by Session.erasures.collectAsStateWithLifecycle()
+    key(erasures) { SettingsContent() }
+}
+
+@Composable
+private fun SettingsContent() {
     var showSignals by rememberSaveable { mutableStateOf(false) }
     if (showSignals) {
         BackHandler { showSignals = false }
@@ -438,6 +447,47 @@ private fun DataSection(onSignals: () -> Unit) {
             )
         }
         Text(if (files == 1) "1 file" else "$files files", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Divider()
+    EraseRow()
+}
+
+/** "Erase all data", behind a confirmation. */
+@Composable
+private fun EraseRow() {
+    val context = LocalContext.current
+    val erasing by Session.erasing.collectAsStateWithLifecycle()
+    val state by Session.state.collectAsStateWithLifecycle()
+    var asking by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(enabled = !erasing) { asking = true },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(if (erasing) "Erasing…" else "Erase all data", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+        if (erasing) CircularProgressIndicator(Modifier.height(20.dp), strokeWidth = 2.dp)
+    }
+    if (asking) {
+        val connected = state !is LinkState.Idle && state !is LinkState.Failed
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text("Erase all data?") },
+            text = {
+                Text(
+                    (if (connected) "Disconnects from the dongle, then deletes" else "Deletes") +
+                        " all trips with their routes and addresses, refuels, the car's last values and settings," +
+                        " value recordings, the stored PIN and every setting from this phone. This cannot be undone" +
+                        " — export the trips first if you want to keep them.\n\n" +
+                        "Permissions and the Bluetooth pairing stay; change those in the system settings.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = false
+                    Session.eraseAll(context)
+                }) { Text("Erase", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+        )
     }
 }
 

@@ -76,6 +76,12 @@ object Settings {
         return SessionSettings(target, pin, record(context))
     }
 
+    /** Forgets every choice and the PIN (and the key that sealed it). */
+    fun clear(context: Context) {
+        prefs(context).edit().clear().commit()
+        PinVault.forget()
+    }
+
     fun isSessionWanted(context: Context): Boolean = prefs(context).getBoolean(KEY_WANTED, false)
 
     fun setSessionWanted(context: Context, wanted: Boolean) {

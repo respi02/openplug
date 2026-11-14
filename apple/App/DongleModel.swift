@@ -188,14 +188,23 @@ final class DongleModel: ObservableObject {
 
     private static func journalPath(demo: Bool) throws -> String {
         #if DEBUG
-        if let override = ProcessInfo.processInfo.environment["OPENPLUG_JOURNAL"] { return override }
+        if let override = journalOverride { return override }
         #endif
-        let dir = try FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("OpenPlug", isDirectory: true)
+        let dir = try journalDirectory()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent(demo ? "journal-demo.json" : "journal.json").path
     }
+
+    /// Where the trip logs live, with their routes (`journal.tracks/`).
+    private static func journalDirectory() throws -> URL {
+        try FileManager.default
+            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("OpenPlug", isDirectory: true)
+    }
+
+    #if DEBUG
+    private static var journalOverride: String? { ProcessInfo.processInfo.environment["OPENPLUG_JOURNAL"] }
+    #endif
 
     /// Where recordings go: visible in the Files app on iOS (On My iPhone › OpenPlug),
     /// in ~/Documents/OpenPlug Recordings on a Mac.
@@ -340,6 +349,7 @@ final class DongleModel: ObservableObject {
                 if let p = trip.start, trip.startAddress == nil { start = await addresses.lookUp(lat: p.lat, lon: p.lon) }
                 if let p = trip.end, trip.endAddress == nil { end = await addresses.lookUp(lat: p.lat, lon: p.lon) }
                 if start == nil && end == nil { break } // offline or throttled: later
+                guard self.trips === trips else { break } // the log was erased meanwhile
                 _ = trips.setTripAddresses(startMs: trip.startMs, start: start, end: end)
                 journal = Self.snapshot(trips)
             }
@@ -385,6 +395,59 @@ final class DongleModel: ObservableObject {
     func disconnect() {
         wantedTarget = nil
         control?.stop()
+    }
+
+    // MARK: erasing everything
+
+    /// True while `eraseAll` runs.
+    @Published private(set) var erasing = false
+    /// Counts finished erasures, so screens can drop what they still show.
+    @Published private(set) var erasures = 0
+
+    /// Deletes everything the app keeps on this device: both trip logs with their
+    /// routes, the value recordings, the PIN, the remembered dongle and every setting.
+    /// A running session is stopped first.
+    func eraseAll() async {
+        guard !erasing else { return }
+        erasing = true
+        defer {
+            erasing = false
+            erasures += 1
+        }
+        disconnect()
+        // let the session thread finish with the log and the recording file
+        var waited = 0
+        while control != nil, waited < 200 {
+            try? await Task.sleep(for: .milliseconds(50))
+            waited += 1
+        }
+        trips = nil // an address lookup in flight stops at its next step
+
+        let files = FileManager.default
+        #if DEBUG
+        if let override = Self.journalOverride {
+            for suffix in ["", ".tmp", ".tracks"] {
+                let base = URL(fileURLWithPath: override).deletingPathExtension().path
+                try? files.removeItem(atPath: suffix.isEmpty ? override : base + suffix)
+            }
+        } else if let dir = try? Self.journalDirectory() {
+            try? files.removeItem(at: dir)
+        }
+        #else
+        if let dir = try? Self.journalDirectory() { try? files.removeItem(at: dir) }
+        #endif
+        if let dir = try? Self.recordingsDirectory() { try? files.removeItem(at: dir) }
+
+        Keychain.pin = nil
+        recordsRoutes = false
+        looksUpAddresses = false
+        if let domain = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: domain) }
+
+        readings = []
+        journal = JournalSnapshot()
+        state = .idle
+        openJournal(demo: false) // a fresh, empty one
+        syncLiveActivity()
     }
 
     private enum Update {

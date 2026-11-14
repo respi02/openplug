@@ -94,7 +94,7 @@ object Session {
     private class Request(val settings: SessionSettings, val open: () -> DongleTransport, val recordTo: File?)
 
     private val lock = Object()
-    private var trips: TripJournal? = null
+    @Volatile private var trips: TripJournal? = null
     /** Which journal is open: null = none yet, true = the fake dongle's (debug builds). */
     private var journalIsDemo: Boolean? = null
     private var pending: Request? = null
@@ -423,6 +423,58 @@ object Session {
     fun setCar(settings: CarSettings) {
         trips?.setCarSettings(settings) ?: return
         publishJournal()
+    }
+
+    // ---- erasing everything ----
+
+    private val _erasing = MutableStateFlow(false)
+    /** True while [eraseAll] runs. */
+    val erasing: StateFlow<Boolean> = _erasing
+
+    private val _erasures = MutableStateFlow(0)
+    /** Counts finished [eraseAll]s, so screens can drop what they still show. */
+    val erasures: StateFlow<Int> = _erasures
+
+    /**
+     * Deletes everything the app keeps on the phone: both trip logs with their routes,
+     * the value recordings, the map cache, the PIN and every setting. A running session
+     * is stopped first. Works on a thread of its own; [erasing] is true meanwhile.
+     */
+    fun eraseAll(context: Context) {
+        val app = context.applicationContext
+        if (_erasing.value) return
+        _erasing.value = true
+        stop(app)
+        Thread({
+            try {
+                // let the session thread finish with the log and the recording file
+                val deadline = System.currentTimeMillis() + 10_000
+                while ((isActive || (_state.value !is LinkState.Idle && _state.value !is LinkState.Failed)) &&
+                    System.currentTimeMillis() < deadline
+                ) {
+                    Thread.sleep(50)
+                }
+                val old = trips
+                trips = null // address lookups stop at their next step
+                synchronized(lock) { journalIsDemo = null }
+                geocoding.submit {}.get() // and the one in flight has written
+                old?.destroy()
+
+                app.filesDir.listFiles { f -> f.name.startsWith("journal") }?.forEach { it.deleteRecursively() }
+                recordingsDir(app).deleteRecursively()
+                app.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+                Settings.clear(app)
+
+                _readings.value = emptyList()
+                _state.value = LinkState.Idle
+                useJournal(app, demo = false) // a fresh, empty one
+            } catch (e: Exception) {
+                Log.w(TAG, "erasing failed: $e")
+            } finally {
+                _erasures.value += 1
+                _erasing.value = false
+            }
+        }, "openplug-erase").start()
     }
 
     private fun publishJournal() {
