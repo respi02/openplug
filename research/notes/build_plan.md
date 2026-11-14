@@ -39,7 +39,10 @@ a start threshold for trips (3 km/h held for 3 s); filing trips (business/privat
 note), deleting them, addresses for their ends (opt-in); the tank size as a fuel gauge;
 the service interval with a countdown and a reminder; the Android PIN sealed with a
 Keystore key; CI (GitHub Actions: core tests and clippy, the Android build, the iOS and
-macOS builds). The Android UI for these was built but not yet run on the phone.
+macOS builds). Checked on both phones against the fake dongle and test journals:
+Android end to end (PIN sealing, filing, deleting, addresses via the phone's geocoder,
+car settings); iPhone addresses and car settings (filing a trip only in the
+simulator's layout, not exercised on the phone).
 
 ## Next
 1. **A real drive, recorded.** With "Record values" and "Record routes" on. It settles
