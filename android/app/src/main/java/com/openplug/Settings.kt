@@ -14,14 +14,16 @@ data class SessionSettings(val targetId: String, val pin: String, val record: Bo
     val isFake: Boolean get() = targetId == Settings.FAKE_ID
 }
 
-/** The app's stored choices (plain preferences; the PIN moves to the Keystore later). */
+/** The app's stored choices. The PIN is kept encrypted with a Keystore key ([PinVault]). */
 object Settings {
     /** The debug-only fake dongle's target id (it has a trip log of its own). */
     const val FAKE_ID = "tcp"
 
     private const val PREFS = "openplug"
     private const val KEY_TARGET = "target"
-    private const val KEY_PIN = "pin"
+    /** Where older builds kept the PIN in plain text; moved to [KEY_PIN_SEALED] on first read. */
+    private const val KEY_PIN_PLAIN = "pin"
+    private const val KEY_PIN_SEALED = "pin_sealed"
     private const val KEY_RECORD = "record"
 
     /** True from Connect until the user stops the session (or the PIN is rejected). */
@@ -31,7 +33,16 @@ object Settings {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun target(context: Context): String? = prefs(context).getString(KEY_TARGET, null)
-    fun pin(context: Context): String = prefs(context).getString(KEY_PIN, "") ?: ""
+    fun pin(context: Context): String {
+        val prefs = prefs(context)
+        prefs.getString(KEY_PIN_PLAIN, null)?.let { plain ->
+            // migrate: seal it, then drop the plain copy
+            val sealed = runCatching { PinVault.seal(plain) }.getOrNull() ?: return plain
+            prefs.edit().putString(KEY_PIN_SEALED, sealed).remove(KEY_PIN_PLAIN).commit()
+            return plain
+        }
+        return prefs.getString(KEY_PIN_SEALED, null)?.let(PinVault::open) ?: ""
+    }
 
     /** On by default in debug builds, which are the ones taken on test drives. */
     fun record(context: Context): Boolean = prefs(context).getBoolean(KEY_RECORD, BuildConfig.DEBUG)
@@ -41,14 +52,21 @@ object Settings {
 
     fun setRecordRoutes(context: Context, on: Boolean) = prefs(context).edit().putBoolean("record_routes", on).apply()
 
+    /** Whether trip ends get a street address (sends positions to a geocoding service). */
+    fun lookUpAddresses(context: Context): Boolean = prefs(context).getBoolean("look_up_addresses", false)
+
+    fun setLookUpAddresses(context: Context, on: Boolean) =
+        prefs(context).edit().putBoolean("look_up_addresses", on).apply()
+
     fun setRecord(context: Context, on: Boolean) = prefs(context).edit().putBoolean(KEY_RECORD, on).apply()
 
     fun save(context: Context, s: SessionSettings) {
         prefs(context).edit()
             .putString(KEY_TARGET, s.targetId)
-            .putString(KEY_PIN, s.pin)
+            .putString(KEY_PIN_SEALED, PinVault.seal(s.pin))
+            .remove(KEY_PIN_PLAIN)
             .putBoolean(KEY_RECORD, s.record)
-            .apply()
+            .commit() // before the session may be resumed from these
     }
 
     /** The settings of the last session, if complete. */

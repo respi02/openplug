@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.openplug.core.CarSettings
 import com.openplug.core.Dongle
 import com.openplug.core.DongleException
 import com.openplug.core.JournalException
@@ -15,7 +16,9 @@ import com.openplug.core.RoutePoint
 import com.openplug.core.Reading
 import com.openplug.core.RecordingException
 import com.openplug.core.RefuelRecord
+import com.openplug.core.ServiceDue
 import com.openplug.core.TripJournal
+import com.openplug.core.TripKind
 import com.openplug.core.TripRecord
 import com.openplug.core.ValueRecorder
 import com.openplug.transport.DongleTransport
@@ -25,6 +28,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 
 sealed interface LinkState {
     data object Idle : LinkState
@@ -48,6 +52,12 @@ data class JournalSnapshot(
     val tripRunning: Boolean = false,
     /** Where the car was when the link last dropped. */
     val parked: ParkedAt? = null,
+    /** What the driver entered about the car. */
+    val car: CarSettings = CarSettings(null, null, null),
+    /** The fuel in the tank as a share of the tank, when the tank size is set. */
+    val fuelFraction: Double? = null,
+    /** How far off the next service is, when an interval is set. */
+    val service: ServiceDue? = null,
 )
 
 /**
@@ -106,6 +116,7 @@ object Session {
      * synthetic values never end up in the car's log. Only called while no session runs.
      */
     private fun useJournal(context: Context, demo: Boolean) {
+        appContext = context.applicationContext
         synchronized(lock) {
             if (journalIsDemo == demo) return
             journalIsDemo = demo
@@ -400,9 +411,65 @@ object Session {
     /** The finished trips as CSV text, or null when there is no trip log. */
     fun exportCsv(): String? = trips?.exportCsv()
 
+    /** Files a finished trip: business or private, and a note. */
+    fun file(trip: TripRecord, kind: TripKind, note: String) {
+        if (trips?.setTripDetails(trip.startMs, kind, note) == true) publishJournal()
+    }
+
+    fun delete(trip: TripRecord) {
+        if (trips?.deleteTrip(trip.startMs) == true) publishJournal()
+    }
+
+    fun setCar(settings: CarSettings) {
+        trips?.setCarSettings(settings) ?: return
+        publishJournal()
+    }
+
     private fun publishJournal() {
         val j = trips ?: return
-        _journal.value = JournalSnapshot(j.activeTrip(), j.trips(), j.refuels(), j.totals(), j.lastValues(), j.tripRunning(), j.parked())
+        val before = _journal.value.trips.size
+        _journal.value = JournalSnapshot(
+            j.activeTrip(), j.trips(), j.refuels(), j.totals(), j.lastValues(), j.tripRunning(), j.parked(),
+            j.carSettings(), j.fuelFraction(), j.serviceDue(now()),
+        )
+        if (_journal.value.trips.size != before) lookUpAddresses()
+    }
+
+    // ---- addresses ----
+
+    private var appContext: Context? = null
+    private val geocoding = Executors.newSingleThreadExecutor()
+    private var lookingUp = false
+
+    /**
+     * Fills in the addresses of finished trips that have positions but none yet,
+     * newest first, a few at a time, when the user switched lookups on.
+     */
+    fun lookUpAddresses() {
+        val context = appContext ?: return
+        if (!Settings.lookUpAddresses(context)) return
+        val journal = trips ?: return
+        synchronized(lock) {
+            if (lookingUp) return
+            lookingUp = true
+        }
+        val missing = _journal.value.trips.filter {
+            (it.start != null && it.startAddress == null) || (it.end != null && it.endAddress == null)
+        }.take(10)
+        geocoding.execute {
+            try {
+                for (trip in missing) {
+                    val start = trip.start?.takeIf { trip.startAddress == null }?.let { Addresses.lookUp(context, it.lat, it.lon) }
+                    val end = trip.end?.takeIf { trip.endAddress == null }?.let { Addresses.lookUp(context, it.lat, it.lon) }
+                    if (start == null && end == null) break // offline or refused: later
+                    if (trips !== journal) break // another log was opened meanwhile
+                    journal.setTripAddresses(trip.startMs, start, end)
+                    publishJournal()
+                }
+            } finally {
+                synchronized(lock) { lookingUp = false }
+            }
+        }
     }
 
     private fun now(): ULong = System.currentTimeMillis().toULong()

@@ -14,7 +14,7 @@
     <!-- Optional, asked for when the user switches on "Record routes": the phone's
          position while the car is connected (also when the session was resumed in the
          background), for the route of a trip and the parking place. Map tiles come from
-         OpenStreetMap over the network. -->
+         OpenStreetMap over the network, and so do addresses for trips when switched on. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />

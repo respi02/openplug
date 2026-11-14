@@ -166,7 +166,7 @@ fn elements(readings: &[Reading]) -> Vec<dongle::DataElement> {
 
 // ---- trip and refuel journal ----
 
-use crate::journal::{Journal, Refuel, Totals, Trip};
+use crate::journal::{CarProfile, Journal, Refuel, ServiceStatus, Totals, Trip, TripKind};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
@@ -192,6 +192,43 @@ pub struct TripRecord {
     /// Where the trip began and ended, when positions were being recorded.
     pub start: Option<GeoPoint>,
     pub end: Option<GeoPoint>,
+    /// Filed by the driver.
+    pub kind: TripKind,
+    pub note: String,
+    /// Addresses the app looked up for the start and end.
+    pub start_address: Option<String>,
+    pub end_address: Option<String>,
+}
+
+/// Facts about the car entered by the driver. Absent values are not set.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct CarSettings {
+    pub tank_l: Option<f64>,
+    pub service_every_km: Option<f64>,
+    pub service_every_days: Option<u32>,
+}
+
+impl From<CarProfile> for CarSettings {
+    fn from(p: CarProfile) -> Self {
+        Self { tank_l: p.tank_l, service_every_km: p.service_every_km, service_every_days: p.service_every_days }
+    }
+}
+
+/// How far off the next service is; negative values are overdue.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct ServiceDue {
+    pub km_left: Option<f64>,
+    pub days_left: Option<i64>,
+    /// True within 1000 km or 30 days of the service.
+    pub soon: bool,
+    /// When the car's counters were last read.
+    pub read_ms: u64,
+}
+
+impl From<ServiceStatus> for ServiceDue {
+    fn from(s: ServiceStatus) -> Self {
+        Self { km_left: s.km_left, days_left: s.days_left, soon: s.due_soon(), read_ms: s.read_ms }
+    }
 }
 
 /// A place, in degrees (WGS 84).
@@ -239,6 +276,10 @@ impl From<Trip> for TripRecord {
             fuel_used_l: t.fuel_used_l,
             start: t.start_pos.map(GeoPoint::from),
             end: t.end_pos.map(GeoPoint::from),
+            kind: t.kind,
+            note: t.note,
+            start_address: t.start_address,
+            end_address: t.end_address,
         }
     }
 }
@@ -397,6 +438,46 @@ impl TripJournal {
     /// The finished trips as CSV text.
     pub fn export_csv(&self) -> String {
         self.inner.lock().unwrap().export_csv()
+    }
+
+    /// Files the finished trip that started at `start_ms`; false if there is none.
+    pub fn set_trip_details(&self, start_ms: u64, kind: TripKind, note: String) -> bool {
+        self.inner.lock().unwrap().set_trip_details(start_ms, kind, &note)
+    }
+
+    /// Stores looked-up addresses for a finished trip's ends (`None` keeps the old one).
+    pub fn set_trip_addresses(&self, start_ms: u64, start: Option<String>, end: Option<String>) -> bool {
+        self.inner.lock().unwrap().set_trip_addresses(start_ms, start, end)
+    }
+
+    /// Deletes a finished trip and its route; false if there is none.
+    pub fn delete_trip(&self, start_ms: u64) -> bool {
+        self.inner.lock().unwrap().delete_trip(start_ms)
+    }
+
+    pub fn car_settings(&self) -> CarSettings {
+        self.inner.lock().unwrap().profile().into()
+    }
+
+    /// Stores the car's settings; non-positive values clear a setting.
+    pub fn set_car_settings(&self, settings: CarSettings) {
+        self.inner.lock().unwrap().set_profile(CarProfile {
+            tank_l: settings.tank_l,
+            service_every_km: settings.service_every_km,
+            service_every_days: settings.service_every_days,
+        });
+    }
+
+    /// The last known fuel in the tank as a share of the tank (0–1), when the tank
+    /// size is set.
+    pub fn fuel_fraction(&self) -> Option<f64> {
+        self.inner.lock().unwrap().fuel_fraction()
+    }
+
+    /// How far off the next service is, when an interval is set and the car has
+    /// reported its counters.
+    pub fn service_due(&self, now_ms: u64) -> Option<ServiceDue> {
+        self.inner.lock().unwrap().service_status(now_ms).map(ServiceDue::from)
     }
 }
 

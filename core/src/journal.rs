@@ -3,9 +3,12 @@
 //! research/notes/original_app_features.md), without any vendor code.
 //!
 //! Rules:
-//! - A trip **starts** when the vehicle speed first rises above zero.
+//! - A trip **starts** once the vehicle speed has stayed at or above
+//!   [`START_SPEED_KMH`] for [`START_HOLD_MS`]; the trip then begins at the first of
+//!   those samples. A standing car with the engine running can report a small
+//!   non-zero speed, which must not open a trip.
 //! - It is **paused** when the link to the dongle drops (ignition off, out of range).
-//! - A paused trip **resumes** if the car moves again within
+//! - A paused trip **resumes** if the car moves again (by the same rule) within
 //!   [`TRIP_FINISH_AFTER_MS`]; otherwise it is **finished** at the moment it paused.
 //! - A **refuel** is recorded when the first fuel reading of a new connection is more
 //!   than [`REFUEL_MIN_LITRES`] above the last one seen.
@@ -24,6 +27,10 @@ use crate::dongle::{state, DataElement};
 pub const TRIP_FINISH_AFTER_MS: u64 = 15 * 60 * 1000;
 /// Smallest rise of the fuel level between two connections that counts as a refuel.
 pub const REFUEL_MIN_LITRES: f64 = 1.0;
+/// Speed at or above which the car counts as moving off.
+pub const START_SPEED_KMH: f32 = 3.0;
+/// How long the speed must stay at or above [`START_SPEED_KMH`] to start a trip.
+pub const START_HOLD_MS: u64 = 3_000;
 /// Trips shorter than this are dropped (shuffling the car on a driveway).
 pub const MIN_TRIP_KM: f64 = 0.05;
 /// Longest gap between two speed samples that still counts as continuous driving.
@@ -40,6 +47,9 @@ const URL_SPEED: u32 = 0x0002_0000;
 const URL_FUEL_L: u32 = 0x0002_0002;
 const URL_ODOMETER: u32 = 0x0002_0004;
 const URL_RPM: u32 = 0x0004_0000;
+const URL_DAYS_SINCE_SERVICE: u32 = 0x0007_0009;
+const URL_KM_SINCE_SERVICE: u32 = 0x0007_0012;
+const DAY_MS: u64 = 86_400_000;
 
 /// Whether a trip is in progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +90,60 @@ pub struct Fix {
     pub time_ms: u64,
 }
 
+/// What a trip was for, as the driver files it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
+#[serde(rename_all = "lowercase")]
+pub enum TripKind {
+    #[default]
+    Unset,
+    Business,
+    Private,
+}
+
+impl TripKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unset => "",
+            Self::Business => "business",
+            Self::Private => "private",
+        }
+    }
+}
+
+/// Facts about the car that the dongle does not report, entered by the driver.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct CarProfile {
+    /// Usable tank volume, so the fuel in the tank can be shown as a level.
+    #[serde(default)]
+    pub tank_l: Option<f64>,
+    /// The service interval, as the car's service plan sets it.
+    #[serde(default)]
+    pub service_every_km: Option<f64>,
+    #[serde(default)]
+    pub service_every_days: Option<u32>,
+}
+
+/// How far off the next service is, from the car's own "since the last service"
+/// counters and the interval in the [`CarProfile`]. Negative values are overdue.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ServiceStatus {
+    pub km_left: Option<f64>,
+    pub days_left: Option<i64>,
+    /// When the counters were last read.
+    pub read_ms: u64,
+}
+
+impl ServiceStatus {
+    /// Due within this many km or days: worth a reminder.
+    pub const SOON_KM: f64 = 1_000.0;
+    pub const SOON_DAYS: i64 = 30;
+
+    pub fn due_soon(&self) -> bool {
+        self.km_left.is_some_and(|k| k <= Self::SOON_KM) || self.days_left.is_some_and(|d| d <= Self::SOON_DAYS)
+    }
+}
+
 /// One finished (or still running) drive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Trip {
@@ -99,6 +163,16 @@ pub struct Trip {
     pub start_pos: Option<Position>,
     #[serde(default)]
     pub end_pos: Option<Position>,
+    /// Filed by the driver after the trip.
+    #[serde(default)]
+    pub kind: TripKind,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    /// Addresses of the start and end, looked up by the app from the positions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_address: Option<String>,
 }
 
 impl Trip {
@@ -190,6 +264,8 @@ struct Data {
     /// Where the car was when the link last dropped.
     #[serde(default)]
     parked: Option<Fix>,
+    #[serde(default)]
+    profile: CarProfile,
 }
 
 pub struct Journal {
@@ -200,12 +276,15 @@ pub struct Journal {
     last_save_ms: u64,
     /// Routes of finished trips when there is no file to keep them in (tests).
     memory_tracks: BTreeMap<u64, Vec<TrackPoint>>,
+    /// Speed samples at or above [`START_SPEED_KMH`] while no trip is running: the
+    /// car may be moving off. Replayed into the trip once the move is confirmed.
+    moving_off: Vec<(u64, f32)>,
 }
 
 impl Journal {
     /// A journal that lives only in memory.
     pub fn in_memory() -> Self {
-        Self { path: None, data: Data::default(), fuel_checked: false, last_save_ms: 0, memory_tracks: BTreeMap::new() }
+        Self { path: None, data: Data::default(), fuel_checked: false, last_save_ms: 0, memory_tracks: BTreeMap::new(), moving_off: Vec::new() }
     }
 
     /// Opens (or creates) the journal stored in `path`. An unreadable file is an
@@ -218,7 +297,7 @@ impl Journal {
             Err(e) => return Err(e),
         };
         let mut journal =
-            Self { path: Some(path.to_path_buf()), data, fuel_checked: false, last_save_ms: 0, memory_tracks: BTreeMap::new() };
+            Self { path: Some(path.to_path_buf()), data, fuel_checked: false, last_save_ms: 0, memory_tracks: BTreeMap::new(), moving_off: Vec::new() };
         if let Some(start) = journal.data.active.as_ref().map(|a| a.start_ms) {
             let track = journal.read_track(start);
             if let Some(a) = &mut journal.data.active {
@@ -251,12 +330,12 @@ impl Journal {
     /// The finished trips as CSV (one row per trip, times in UTC, decimal points).
     pub fn export_csv(&self) -> String {
         let mut out = String::from(
-            "start_utc,end_utc,distance_km,moving_min,avg_speed_kmh,max_speed_kmh,max_rpm,fuel_used_l,l_per_100km,end_odometer_km\n",
+            "start_utc,end_utc,distance_km,moving_min,avg_speed_kmh,max_speed_kmh,max_rpm,fuel_used_l,l_per_100km,end_odometer_km,type,start_address,end_address,note\n",
         );
         let opt = |v: Option<f64>, digits: usize| v.map(|v| format!("{v:.digits$}")).unwrap_or_default();
         for t in &self.data.trips {
             out += &format!(
-                "{},{},{:.2},{:.1},{:.1},{:.0},{:.0},{},{},{}\n",
+                "{},{},{:.2},{:.1},{:.1},{:.0},{:.0},{},{},{},{},{},{},{}\n",
                 iso_utc(t.start_ms),
                 iso_utc(t.end_ms),
                 t.distance_km,
@@ -267,9 +346,92 @@ impl Journal {
                 opt(t.fuel_used_l, 2),
                 opt(t.consumption_l_per_100km(), 1),
                 opt(t.end_odometer_km, 0),
+                t.kind.as_str(),
+                csv_field(t.start_address.as_deref().unwrap_or("")),
+                csv_field(t.end_address.as_deref().unwrap_or("")),
+                csv_field(&t.note),
             );
         }
         out
+    }
+
+    /// Files a finished trip: its type and a note. Returns false if there is no
+    /// finished trip that started at `start_ms`.
+    pub fn set_trip_details(&mut self, start_ms: u64, kind: TripKind, note: &str) -> bool {
+        let Some(trip) = self.data.trips.iter_mut().find(|t| t.start_ms == start_ms) else { return false };
+        trip.kind = kind;
+        trip.note = note.trim().to_string();
+        self.save();
+        true
+    }
+
+    /// Stores the addresses the app looked up for a finished trip's ends (`None`
+    /// keeps what is there).
+    pub fn set_trip_addresses(&mut self, start_ms: u64, start: Option<String>, end: Option<String>) -> bool {
+        let Some(trip) = self.data.trips.iter_mut().find(|t| t.start_ms == start_ms) else { return false };
+        if start.is_some() {
+            trip.start_address = start;
+        }
+        if end.is_some() {
+            trip.end_address = end;
+        }
+        self.save();
+        true
+    }
+
+    /// Removes a finished trip and its route.
+    pub fn delete_trip(&mut self, start_ms: u64) -> bool {
+        let before = self.data.trips.len();
+        self.data.trips.retain(|t| t.start_ms != start_ms);
+        if self.data.trips.len() == before {
+            return false;
+        }
+        self.memory_tracks.remove(&start_ms);
+        if let Some(file) = self.track_file(start_ms) {
+            let _ = std::fs::remove_file(file);
+        }
+        self.save();
+        true
+    }
+
+    pub fn profile(&self) -> CarProfile {
+        self.data.profile
+    }
+
+    pub fn set_profile(&mut self, profile: CarProfile) {
+        let positive = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0);
+        self.data.profile = CarProfile {
+            tank_l: positive(profile.tank_l),
+            service_every_km: positive(profile.service_every_km),
+            service_every_days: profile.service_every_days.filter(|d| *d > 0),
+        };
+        self.save();
+    }
+
+    /// The fuel in the tank as a share of the tank (0–1), when the tank size is
+    /// set and the fuel has been read.
+    pub fn fuel_fraction(&self) -> Option<f64> {
+        let tank = self.data.profile.tank_l?;
+        let fuel = self.data.last_values.get(&URL_FUEL_L)?.value as f64;
+        Some((fuel / tank).clamp(0.0, 1.0))
+    }
+
+    /// How far off the next service is, when an interval is set and the car has
+    /// reported its counters. Days count on from the time of the reading.
+    pub fn service_status(&self, now_ms: u64) -> Option<ServiceStatus> {
+        let p = &self.data.profile;
+        let km = p.service_every_km.zip(self.data.last_values.get(&URL_KM_SINCE_SERVICE));
+        let days = p.service_every_days.zip(self.data.last_values.get(&URL_DAYS_SINCE_SERVICE));
+        if km.is_none() && days.is_none() {
+            return None;
+        }
+        let km_left = km.map(|(every, since)| every - since.value as f64);
+        let days_left = days.map(|(every, since)| {
+            let elapsed = (now_ms.saturating_sub(since.time_ms) / DAY_MS) as i64;
+            every as i64 - since.value.round() as i64 - elapsed
+        });
+        let read_ms = km.map(|k| k.1.time_ms).into_iter().chain(days.map(|d| d.1.time_ms)).max().unwrap_or(0);
+        Some(ServiceStatus { km_left, days_left, read_ms })
     }
 
     pub fn trip_state(&self) -> TripState {
@@ -298,6 +460,7 @@ impl Journal {
 
     /// The connection was lost or closed: a running trip is paused.
     pub fn on_disconnected(&mut self, now_ms: u64) {
+        self.moving_off.clear();
         // the car stays where the phone last was while connected
         self.data.parked = self.data.last_fix.filter(|f| now_ms.saturating_sub(f.time_ms) <= PARKED_FIX_MAX_AGE_MS);
         if let Some(a) = &mut self.data.active {
@@ -379,34 +542,58 @@ impl Journal {
     }
 
     fn on_speed(&mut self, speed: f32, now_ms: u64) {
-        if speed > 0.0 {
-            // a paused trip either resumes or, if it sat too long, ends first
-            self.tick(now_ms);
-            match &mut self.data.active {
-                Some(a) => a.paused_at_ms = None,
-                None => {
-                    self.data.active = Some(Active {
-                        start_ms: now_ms,
-                        end_ms: now_ms,
-                        integrated_km: 0.0,
-                        moving_s_x1000: 0,
-                        max_speed_kmh: 0.0,
-                        max_rpm: 0.0,
-                        start_odometer_km: self.data.last_odometer_km,
-                        end_odometer_km: self.data.last_odometer_km,
-                        start_fuel_l: self.data.last_fuel_l,
-                        end_fuel_l: self.data.last_fuel_l,
-                        refuelled: false,
-                        paused_at_ms: None,
-                        start_pos: None,
-                        end_pos: None,
-                        track: Vec::new(),
-                        last_sample: None,
-                    });
-                    self.save_at(now_ms);
-                }
+        let running = self.data.active.as_ref().is_some_and(|a| a.paused_at_ms.is_none());
+        if running {
+            self.integrate(speed, now_ms);
+            return;
+        }
+        // not driving: is the car moving off?
+        if speed < START_SPEED_KMH {
+            self.moving_off.clear();
+            return;
+        }
+        if self.moving_off.last().is_some_and(|&(t, _)| now_ms.saturating_sub(t) > MAX_SAMPLE_GAP_MS) {
+            self.moving_off.clear();
+        }
+        self.moving_off.push((now_ms, speed));
+        let first_ms = self.moving_off[0].0;
+        if now_ms.saturating_sub(first_ms) < START_HOLD_MS {
+            return;
+        }
+        // a paused trip either resumes or, if it sat too long, ends first
+        self.tick(first_ms);
+        match &mut self.data.active {
+            Some(a) => a.paused_at_ms = None,
+            None => {
+                let fix = self.data.last_fix.filter(|f| first_ms.saturating_sub(f.time_ms) <= PARKED_FIX_MAX_AGE_MS);
+                self.data.active = Some(Active {
+                    start_ms: first_ms,
+                    end_ms: first_ms,
+                    integrated_km: 0.0,
+                    moving_s_x1000: 0,
+                    max_speed_kmh: 0.0,
+                    max_rpm: 0.0,
+                    start_odometer_km: self.data.last_odometer_km,
+                    end_odometer_km: self.data.last_odometer_km,
+                    start_fuel_l: self.data.last_fuel_l,
+                    end_fuel_l: self.data.last_fuel_l,
+                    refuelled: false,
+                    paused_at_ms: None,
+                    start_pos: fix.map(|f| f.pos),
+                    end_pos: fix.map(|f| f.pos),
+                    track: Vec::new(),
+                    last_sample: None,
+                });
+                self.save_at(now_ms);
             }
         }
+        for (t, v) in std::mem::take(&mut self.moving_off) {
+            self.integrate(v, t);
+        }
+    }
+
+    /// Adds one speed sample to the running trip.
+    fn integrate(&mut self, speed: f32, now_ms: u64) {
         let Some(a) = self.data.active.as_mut().filter(|a| a.paused_at_ms.is_none()) else { return };
         if let Some((t0, v0)) = a.last_sample {
             let dt = now_ms.saturating_sub(t0);
@@ -538,6 +725,15 @@ impl Journal {
     }
 }
 
+/// Quotes a free-text CSV field when it needs it (RFC 4180).
+fn csv_field(text: &str) -> String {
+    if text.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", text.replace('"', "\"\""))
+    } else {
+        text.to_string()
+    }
+}
+
 /// `YYYY-MM-DDTHH:MM:SSZ` for a time in milliseconds since the Unix epoch.
 pub fn iso_utc(ms: u64) -> String {
     let secs = ms / 1000;
@@ -588,5 +784,9 @@ fn summarize(a: &Active) -> Trip {
         fuel_used_l,
         start_pos: a.start_pos,
         end_pos: a.end_pos,
+        kind: TripKind::Unset,
+        note: String::new(),
+        start_address: None,
+        end_address: None,
     }
 }

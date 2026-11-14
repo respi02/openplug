@@ -17,6 +17,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.text.input.ImeAction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +56,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openplug.core.ParkedAt
 import com.openplug.core.RoutePoint
+import com.openplug.core.TripKind
 import com.openplug.core.TripRecord
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -75,6 +92,9 @@ fun TripDetail(trip: TripRecord, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(km(shown.distanceKm), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
+            val from = shown.startAddress?.ifEmpty { null }
+            val to = shown.endAddress?.ifEmpty { null }
+            (if (from != null && to != null) "$from → $to" else from ?: to)?.let { Text(it) }
         }
 
         if (route.size >= 2) {
@@ -120,6 +140,64 @@ fun TripDetail(trip: TripRecord, onBack: () -> Unit) {
                 }
             }
         }
+
+        // only finished trips can be filed or deleted
+        if (live == null) Logbook(trip, onDeleted = onBack)
+    }
+}
+
+/** Business or private, a note, and the way to delete the trip. */
+@Composable
+private fun Logbook(trip: TripRecord, onDeleted: () -> Unit) {
+    var note by rememberSaveable(trip.startMs) { mutableStateOf(trip.note) }
+    var confirm by rememberSaveable { mutableStateOf(false) }
+    val current by rememberUpdatedState(trip)
+    val typed by rememberUpdatedState(note)
+    fun saveNote() {
+        if (typed.trim() != current.note) Session.file(current, current.kind, typed)
+    }
+    DisposableEffect(trip.startMs) { onDispose { saveNote() } }
+
+    Panel {
+        Caption("Logbook")
+        val kinds = listOf(TripKind.UNSET to "Not set", TripKind.BUSINESS to "Business", TripKind.PRIVATE to "Private")
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            kinds.forEachIndexed { i, (kind, label) ->
+                SegmentedButton(
+                    selected = trip.kind == kind,
+                    onClick = { Session.file(trip, kind, note) },
+                    shape = SegmentedButtonDefaults.itemShape(i, kinds.size),
+                    icon = {},
+                ) { Text(label) }
+            }
+        }
+        OutlinedTextField(
+            value = note,
+            onValueChange = { note = it },
+            placeholder = { Text("Purpose, client, note…") },
+            maxLines = 4,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { saveNote() }),
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        )
+    }
+    TextButton(onClick = { confirm = true }, contentPadding = PaddingValues(0.dp)) {
+        Text("Delete trip", color = MaterialTheme.colorScheme.error)
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Delete this trip?") },
+            text = { Text("The trip and its route are removed from the log.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = false
+                    Session.delete(trip)
+                    onDeleted()
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -237,6 +315,14 @@ fun ParkedCard(parked: ParkedAt) {
             },
             onRelease = { it.onDetach() },
         )
+        val address by produceState<String?>(null, parked.lat, parked.lon) {
+            value = if (Settings.lookUpAddresses(context)) {
+                withContext(Dispatchers.IO) { Addresses.lookUp(context, parked.lat, parked.lon) }
+            } else {
+                null
+            }
+        }
+        address?.ifEmpty { null }?.let { Text(it, Modifier.padding(top = 8.dp)) }
         TextButton(
             contentPadding = PaddingValues(0.dp),
             onClick = {

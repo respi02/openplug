@@ -7,16 +7,41 @@ import SwiftUI
 /// and its numbers.
 struct TripDetail: View {
     @EnvironmentObject private var model: DongleModel
-    let trip: TripRecord
+    @Environment(\.dismiss) private var dismiss
+    private let opened: TripRecord
     @State private var route: [RoutePoint] = []
+    @State private var kind: TripKind
+    @State private var note: String
+    @State private var confirmDelete = false
+
+    init(trip: TripRecord) {
+        opened = trip
+        _kind = State(initialValue: trip.kind)
+        _note = State(initialValue: trip.note)
+    }
+
+    /// The trip as the journal holds it now (it changes while in progress or edited).
+    private var trip: TripRecord {
+        if let a = model.journal.active, a.startMs == opened.startMs { return a }
+        return model.journal.trips.first { $0.startMs == opened.startMs } ?? opened
+    }
+
+    /// Only finished trips can be filed or deleted.
+    private var finished: Bool { model.journal.trips.contains { $0.startMs == opened.startMs } }
 
     var body: some View {
+        let trip = self.trip
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(day + " · " + clock(trip.startMs) + " – " + clock(trip.endMs))
                         .font(.subheadline).foregroundStyle(Palette.quiet)
                     Text(km(trip.distanceKm)).font(.system(size: 48, weight: .semibold, design: .rounded)).monospacedDigit()
+                    if let from = trip.startAddress.nonEmpty, let to = trip.endAddress.nonEmpty {
+                        Text(from + " → " + to).font(.subheadline)
+                    } else if let one = trip.startAddress.nonEmpty ?? trip.endAddress.nonEmpty {
+                        Text(one).font(.subheadline)
+                    }
                 }
 
                 if route.count >= 2 {
@@ -69,6 +94,33 @@ struct TripDetail: View {
                         }
                     }
                 }
+
+                if finished {
+                    Panel {
+                        Caption("Logbook")
+                        Picker("Type", selection: $kind) {
+                            Text("Not set").tag(TripKind.unset)
+                            Text("Business").tag(TripKind.business)
+                            Text("Private").tag(TripKind.private)
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.top, 10)
+                        TextField("Purpose, client, note…", text: $note, axis: .vertical)
+                            .lineLimit(1...4)
+                            .textFieldStyle(.roundedBorder)
+                            .padding(.top, 10)
+                            .onSubmit(save)
+                    }
+                    Button("Delete trip", role: .destructive) { confirmDelete = true }
+                        .padding(.top, 4)
+                        .confirmationDialog("Delete this trip and its route?", isPresented: $confirmDelete,
+                                            titleVisibility: .visible) {
+                            Button("Delete", role: .destructive) {
+                                model.delete(trip)
+                                dismiss()
+                            }
+                        }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -77,10 +129,17 @@ struct TripDetail: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .onChange(of: kind) { save() }
+        .onDisappear(perform: save)
         // a trip in progress grows: reload its route as the journal moves on
         .task(id: model.journal.active?.startMs == trip.startMs ? model.journal.active?.movingS : nil) {
             route = model.route(of: trip)
         }
+    }
+
+    private func save() {
+        guard finished, kind != trip.kind || note.trimmingCharacters(in: .whitespacesAndNewlines) != trip.note else { return }
+        model.file(trip, kind: kind, note: note)
     }
 
     private var day: String {
@@ -111,9 +170,19 @@ struct RouteMap: View {
     }
 }
 
+extension Optional where Wrapped == String {
+    /// The text, unless it is missing or empty.
+    var nonEmpty: String? {
+        guard let self, !self.isEmpty else { return nil }
+        return self
+    }
+}
+
 /// Where the car was left, on a small map that opens the Maps app.
 struct ParkedCard: View {
+    @EnvironmentObject private var model: DongleModel
     let parked: ParkedAt
+    @State private var address: String?
 
     var body: some View {
         let place = CLLocationCoordinate2D(latitude: parked.lat, longitude: parked.lon)
@@ -131,9 +200,15 @@ struct ParkedCard: View {
             .frame(height: 150)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .padding(.top, 10)
+            if let address = address.nonEmpty {
+                Text(address).font(.subheadline).padding(.top, 8)
+            }
             if let url = URL(string: "http://maps.apple.com/?ll=\(parked.lat),\(parked.lon)&q=Parked%20car") {
                 Link("Open in Maps", destination: url).font(.subheadline.weight(.semibold)).padding(.top, 10)
             }
+        }
+        .task(id: "\(parked.lat),\(parked.lon),\(model.looksUpAddresses)") {
+            address = await model.address(lat: parked.lat, lon: parked.lon)
         }
     }
 }

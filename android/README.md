@@ -109,6 +109,13 @@ the session is waiting for. On Android 16+ (API 36) it asks to be promoted to a
 `POST_PROMOTED_NOTIFICATIONS`; that path is untested, as our phone runs Android 14,
 where it is an ordinary ongoing notification.
 
+## The PIN
+
+The PIN is kept in the app's preferences encrypted with AES-GCM under a key in the
+Android Keystore (`PinVault`), which never leaves it. The key needs no user
+authentication, since a session resumes on its own in the background. A PIN stored in
+plain text by an older build is sealed and removed on first read. App backup is off.
+
 ## Routes and maps
 
 With **Record routes** on (Settings; off by default), the app takes the phone's
@@ -120,15 +127,23 @@ and the parking card draw OpenStreetMap tiles with
 the network and cached). "Allow all the time" is needed for drives recorded after the
 session was resumed in the background.
 
+With **Addresses for trips** on (off by default), finished trips get a street address
+for their start and end, and the parking card shows one. `Addresses` uses the phone's
+geocoder when `Geocoder.isPresent()` (phones with Google services), otherwise
+OpenStreetMap's [Nominatim](https://nominatim.org/) at most once a second, as its
+usage policy asks. Either way the positions of the trip ends leave the phone; the
+switch says so. Found addresses are stored in the trip log.
+
 ## Permissions
 `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` / `ACCESS_BACKGROUND_LOCATION` and
-`INTERNET` only serve routes and maps (above) and are asked for when that is switched on.
+`INTERNET` only serve routes, maps and addresses (above); location is asked for when
+routes are switched on.
 `BLUETOOTH_CONNECT` (Android 12+) to talk to the bonded dongle; `BLUETOOTH_SCAN`
 (`neverForLocation`) to notice it advertising, optional (without it only timed
 retries). `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_CONNECTED_DEVICE` and
 `POST_NOTIFICATIONS` for the session service; `WAKE_LOCK`,
 `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` and `RECEIVE_BOOT_COMPLETED` for running in
-the background (above). Debug builds add `INTERNET` for the fake dongle. Pair the
+the background (above). Pair the
 dongle (`DP_2_1_…`) in the system Bluetooth settings first.
 
 ## Notes from the first live run
@@ -139,5 +154,5 @@ dongle (`DP_2_1_…`) in the system Bluetooth settings first.
 ## TODO
 - Run the trip log, reconnection and the foreground service on a phone and a real drive.
 - Labels for more data objects.
-- The PIN is remembered in app-private preferences in plain text; move it to the
-  Keystore, or switch to the dongle's token authentication once that is decoded.
+- Switch to the dongle's token authentication once that is decoded, so the PIN is
+  needed only once.

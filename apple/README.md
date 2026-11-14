@@ -131,6 +131,12 @@ value recordings. Trip detail (MapKit route, speed chart) and the parking card u
 background; the app has the `location` background mode for that. Needs iOS 17 /
 macOS 14.
 
+With **Addresses for trips** on (off by default), `App/Addresses.swift` looks up the
+street address of each finished trip's start and end with the system geocoder
+(`CLGeocoder`, i.e. Apple Maps), a few at a time since it is rate limited, and stores
+them in the trip log; the parking card shows one too. Those positions go to Apple; the
+switch says so.
+
 ## The BLE transport
 
 Details and the investigation: [`research/notes/ble_transport.md`](../research/notes/ble_transport.md).

@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openplug.core.ServiceDue
 import com.openplug.core.TripRecord
 
 /** Data objects the Car tab shows (see the catalog in research/notes/live_protocol.md). */
@@ -122,6 +123,8 @@ fun CarTab(onSetUp: () -> Unit) {
             )
         }
 
+        journal.service?.takeIf { it.soon }?.let { ServiceDueCard(it) }
+
         val fuel = shown(Url.FUEL)
         val odometer = text(Url.ODOMETER, "", 0)
         if (fuel != null || odometer != null) {
@@ -135,10 +138,12 @@ fun CarTab(onSetUp: () -> Unit) {
                         Caption("Fuel", Modifier.padding(start = 8.dp))
                     }
                     BigValue(fuel?.let { number(it.value, 1) + " l" } ?: "–")
-                    shown(Url.FUEL_PERCENT)?.let {
+                    (shown(Url.FUEL_PERCENT)?.let { it.value / 100 } ?: journal.fuelFraction)?.let { level ->
+                        val low = level < 0.15
                         LinearProgressIndicator(
-                            progress = { (it.value / 100).toFloat().coerceIn(0f, 1f) },
+                            progress = { level.toFloat().coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            color = if (low) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
                             drawStopIndicator = {},
                         )
                     }
@@ -157,7 +162,13 @@ fun CarTab(onSetUp: () -> Unit) {
             (journal.active ?: journal.trips.firstOrNull())?.let { LastTrip(it) }
             val days = text(Url.SERVICE_DAYS, " days", 0)
             val distance = text(Url.SERVICE_KM, " km", 0)
-            if (days != null || distance != null) {
+            val due = journal.service
+            if (due != null && !due.soon) {
+                Panel {
+                    Caption("Next service")
+                    Text(serviceLeft(due), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                }
+            } else if (due == null && (days != null || distance != null)) {
                 Panel {
                     Caption("Since the last service")
                     Spacer(Modifier.height(8.dp))
@@ -186,6 +197,45 @@ fun CarTab(onSetUp: () -> Unit) {
                         Text(value, fontWeight = FontWeight.SemiBold)
                     }
                 }
+            }
+        }
+    }
+}
+
+/** "in 580 km or in 25 days" — what is left until the next service. */
+private fun serviceLeft(due: ServiceDue): String = buildList {
+    due.kmLeft?.let { add(if (it < 0) number(-it, 0) + " km overdue" else "in " + number(it, 0) + " km") }
+    due.daysLeft?.let {
+        add(
+            when {
+                it < 0 -> "${-it} days overdue"
+                it == 0L -> "today"
+                it == 1L -> "tomorrow"
+                else -> "in $it days"
+            },
+        )
+    }
+}.joinToString(" or ")
+
+/** A reminder that the service is near or overdue. */
+@Composable
+private fun ServiceDueCard(due: ServiceDue) {
+    val colors = MaterialTheme.colorScheme
+    val overdue = (due.kmLeft ?: 1.0) < 0 || (due.daysLeft ?: 1L) < 0
+    Surface(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = colors.surfaceContainerLowest,
+        border = androidx.compose.foundation.BorderStroke(1.dp, colors.tertiary.copy(alpha = 0.5f)),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(32.dp).background(colors.tertiaryContainer, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) { Text("!", fontWeight = FontWeight.Bold, color = colors.onTertiaryContainer) }
+            Column(Modifier.padding(start = 12.dp)) {
+                Text(if (overdue) "Service overdue" else "Service due soon", fontWeight = FontWeight.SemiBold)
+                Text(serviceLeft(due), style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             }
         }
     }

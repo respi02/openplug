@@ -73,6 +73,12 @@ struct JournalSnapshot: Equatable {
     var tripRunning = false
     /// Where the car was when the link last dropped.
     var parked: ParkedAt?
+    /// What the driver entered about the car.
+    var car = CarSettings(tankL: nil, serviceEveryKm: nil, serviceEveryDays: nil)
+    /// The fuel in the tank as a share of the tank, when the tank size is set.
+    var fuelFraction: Double?
+    /// How far off the next service is, when an interval is set.
+    var service: ServiceDue?
 }
 
 /// Shared between the UI and the session thread: lets the user stop a session that
@@ -170,6 +176,7 @@ final class DongleModel: ObservableObject {
             tripsAreDemo = demo
             journalProblem = nil
             self.journal = Self.snapshot(journal)
+            lookUpAddresses()
         } catch JournalError.Unreadable(let message) {
             trips = nil
             journalProblem = message
@@ -278,6 +285,67 @@ final class DongleModel: ObservableObject {
     /// The route of a trip; empty if none was recorded.
     func route(of trip: TripRecord) -> [RoutePoint] { trips?.track(startMs: trip.startMs) ?? [] }
 
+    // MARK: editing the log
+
+    /// Files a finished trip: business or private, and a note.
+    func file(_ trip: TripRecord, kind: TripKind, note: String) {
+        guard let trips, trips.setTripDetails(startMs: trip.startMs, kind: kind, note: note) else { return }
+        journal = Self.snapshot(trips)
+    }
+
+    func delete(_ trip: TripRecord) {
+        guard let trips, trips.deleteTrip(startMs: trip.startMs) else { return }
+        journal = Self.snapshot(trips)
+    }
+
+    func setCar(_ settings: CarSettings) {
+        guard let trips else { return }
+        trips.setCarSettings(settings: settings)
+        journal = Self.snapshot(trips)
+    }
+
+    // MARK: addresses
+
+    private let addresses = Addresses()
+    private var lookingUp = false
+
+    /// Whether trip ends get a street address. Off until switched on in Settings,
+    /// since each lookup sends a position to Apple.
+    @Published var looksUpAddresses = UserDefaults.standard.bool(forKey: "lookUpAddresses") {
+        didSet {
+            UserDefaults.standard.set(looksUpAddresses, forKey: "lookUpAddresses")
+            lookUpAddresses()
+        }
+    }
+
+    /// The address of a place (the parking place), when lookups are on.
+    func address(lat: Double, lon: Double) async -> String? {
+        guard looksUpAddresses else { return nil }
+        return await addresses.lookUp(lat: lat, lon: lon)
+    }
+
+    /// Fills in the addresses of finished trips that have positions but no address
+    /// yet, newest first, a few at a time (the geocoder is rate limited).
+    private func lookUpAddresses() {
+        guard looksUpAddresses, !lookingUp, let trips else { return }
+        let missing = journal.trips.filter {
+            ($0.start != nil && $0.startAddress == nil) || ($0.end != nil && $0.endAddress == nil)
+        }.prefix(10)
+        guard !missing.isEmpty else { return }
+        lookingUp = true
+        Task {
+            defer { lookingUp = false }
+            for trip in missing {
+                var start: String?, end: String?
+                if let p = trip.start, trip.startAddress == nil { start = await addresses.lookUp(lat: p.lat, lon: p.lon) }
+                if let p = trip.end, trip.endAddress == nil { end = await addresses.lookUp(lat: p.lat, lon: p.lon) }
+                if start == nil && end == nil { break } // offline or throttled: later
+                _ = trips.setTripAddresses(startMs: trip.startMs, start: start, end: end)
+                journal = Self.snapshot(trips)
+            }
+        }
+    }
+
     /// The finished trips as CSV text, or nil when there is no trip log.
     func exportCsv() -> String? { trips?.exportCsv() }
 
@@ -331,7 +399,10 @@ final class DongleModel: ObservableObject {
             state = s
             syncLocation()
         case .readings(let r): readings = r
-        case .journal(let j): journal = j
+        case .journal(let j):
+            let finished = j.trips.count != journal.trips.count
+            journal = j
+            if finished { lookUpAddresses() }
         }
         syncLiveActivity()
         #if DEBUG
@@ -348,6 +419,7 @@ final class DongleModel: ObservableObject {
         syncLiveActivity()
         if case .failed = end { wantedTarget = nil } // retrying cannot help
         if let trips { journal = Self.snapshot(trips) }
+        lookUpAddresses()
         #if DEBUG
         trace()
         #endif
@@ -355,7 +427,8 @@ final class DongleModel: ObservableObject {
 
     private nonisolated static func snapshot(_ j: TripJournal) -> JournalSnapshot {
         JournalSnapshot(active: j.activeTrip(), trips: j.trips(), refuels: j.refuels(), totals: j.totals(),
-                        last: j.lastValues(), tripRunning: j.tripRunning(), parked: j.parked())
+                        last: j.lastValues(), tripRunning: j.tripRunning(), parked: j.parked(),
+                        car: j.carSettings(), fuelFraction: j.fuelFraction(), service: j.serviceDue(nowMs: nowMs()))
     }
 
     // MARK: the session thread

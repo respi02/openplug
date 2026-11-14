@@ -36,6 +36,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openplug.core.CarSettings
 import com.openplug.core.Reading
 import java.util.Locale
 
@@ -106,6 +110,14 @@ fun SettingsTab() {
         ScreenTitle("Settings")
         Section("DONGLE")
         Panel { DongleSection() }
+        Section("CAR")
+        Panel { CarSection() }
+        Text(
+            "The tank size turns the litres the car reports into a fuel gauge. With the service interval of your car's service plan, OpenPlug counts down to the next service from the car's own \"since the last service\" counters, and reminds you 1000 km or 30 days before.",
+            Modifier.padding(horizontal = 4.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Section("RECORDING")
         Panel { RecordingSection() }
         Section("DATA")
@@ -219,6 +231,57 @@ private fun DongleSection() {
     }
 }
 
+// ---- car: tank size, service interval ----
+
+@Composable
+private fun CarSection() {
+    val journal by Session.journal.collectAsStateWithLifecycle()
+    val car = journal.car
+    fun plain(v: Double?) = v?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: ""
+    var tank by rememberSaveable { mutableStateOf(plain(car.tankL)) }
+    var everyKm by rememberSaveable { mutableStateOf(plain(car.serviceEveryKm)) }
+    val months = car.serviceEveryDays?.let { Math.round(it.toDouble() / 30.4375).toInt() } ?: 0
+
+    fun parse(text: String): Double? = text.filterNot { it.isWhitespace() }.replace(',', '.').toDoubleOrNull()
+    fun save(tankText: String = tank, kmText: String = everyKm, everyMonths: Int = months) {
+        val days = if (everyMonths > 0) Math.round(everyMonths * 30.4375).toUInt() else null
+        val settings = CarSettings(parse(tankText), parse(kmText), days)
+        if (settings != journal.car) Session.setCar(settings)
+    }
+
+    OutlinedTextField(
+        value = tank,
+        onValueChange = { tank = it; save(tankText = it) },
+        label = { Text("Tank size") },
+        suffix = { Text("l") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = everyKm,
+        onValueChange = { everyKm = it; save(kmText = it) },
+        label = { Text("Service every") },
+        suffix = { Text("km") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Text("or every", Modifier.padding(top = 12.dp, bottom = 4.dp))
+    val choices = listOf(0 to "–", 6 to "6 mo", 12 to "1 yr", 24 to "2 yr", 36 to "3 yr")
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        choices.forEachIndexed { i, (m, label) ->
+            SegmentedButton(
+                selected = months == m,
+                onClick = { save(everyMonths = m) },
+                shape = SegmentedButtonDefaults.itemShape(i, choices.size),
+                icon = {},
+            ) { Text(label) }
+        }
+    }
+}
+
 // ---- recording: background, value recordings ----
 
 @Composable
@@ -260,6 +323,23 @@ private fun RecordingSection() {
     }
     Divider()
     RoutesRow()
+    Divider()
+    var addresses by remember { mutableStateOf(Settings.lookUpAddresses(context)) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Addresses for trips")
+            Text(
+                "Looks up the street address of each trip's start and end, and of the parking place. Sends those positions to the phone's address service, or to OpenStreetMap (Nominatim) if the phone has none.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = addresses, modifier = Modifier.padding(start = 12.dp), onCheckedChange = {
+            addresses = it
+            Settings.setLookUpAddresses(context, it)
+            if (it) Session.lookUpAddresses()
+        })
+    }
     Divider()
     var record by remember { mutableStateOf(Settings.record(context)) }
     val idle = state is LinkState.Idle || state is LinkState.Failed

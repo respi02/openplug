@@ -32,10 +32,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openplug.core.RefuelRecord
+import com.openplug.core.TripKind
 import com.openplug.core.TripRecord
 import java.time.Instant
 import java.time.LocalDate
@@ -177,6 +179,16 @@ private fun Summary(trips: List<TripRecord>) {
                 Modifier.weight(1f),
             )
         }
+        val business = trips.filter { it.kind == TripKind.BUSINESS }.sumOf { it.distanceKm }
+        val personal = trips.filter { it.kind == TripKind.PRIVATE }.sumOf { it.distanceKm }
+        if (business > 0 || personal > 0) {
+            val open = (distance - business - personal).coerceAtLeast(0.0)
+            Caption(
+                listOf(business to "business", personal to "private", open to "not filed")
+                    .filter { it.first >= 0.05 }.joinToString(" · ") { km(it.first) + " " + it.second },
+                Modifier.padding(top = 12.dp),
+            )
+        }
     }
 }
 
@@ -195,10 +207,14 @@ private fun time(ms: ULong): String = DateUtils.formatDateTime(LocalContext.curr
 private fun TripRow(trip: TripRecord, running: Boolean, onOpen: () -> Unit) {
     Row(Modifier.clickable(onClick = onOpen), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(
-                if (running) time(trip.startMs) + " – now" else time(trip.startMs) + " – " + time(trip.endMs),
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (running) time(trip.startMs) + " – now" else time(trip.startMs) + " – " + time(trip.endMs),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (trip.kind != TripKind.UNSET) KindBadge(trip.kind, Modifier.padding(start = 8.dp))
+            }
+            places(trip)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 1) }
             val details = buildList {
                 add(duration(trip.movingS))
                 trip.consumptionLPer100km?.let { add(number(it, 1) + " l/100 km") }
@@ -209,9 +225,44 @@ private fun TripRow(trip: TripRecord, running: Boolean, onOpen: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (trip.note.isNotEmpty()) {
+                Text(
+                    trip.note,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
         }
         Text(km(trip.distanceKm), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
     }
+}
+
+/** "Brno → Blansko": the towns of the ends, or the streets for a trip within one town. */
+private fun places(trip: TripRecord): String? {
+    fun town(a: String?) = a?.ifEmpty { null }?.substringAfterLast(", ")
+    fun street(a: String?) = a?.ifEmpty { null }?.substringBefore(", ")
+    val (a, b) = town(trip.startAddress) to town(trip.endAddress)
+    return when {
+        a != null && b != null && a == b -> listOfNotNull(street(trip.startAddress), street(trip.endAddress)).joinToString(" → ")
+        a != null && b != null -> "$a → $b"
+        else -> a ?: b
+    }
+}
+
+@Composable
+private fun KindBadge(kind: TripKind, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val business = kind == TripKind.BUSINESS
+    Text(
+        if (business) "Business" else "Private",
+        modifier
+            .background(if (business) colors.primaryContainer else colors.surfaceContainerHighest, RoundedCornerShape(50))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (business) colors.onPrimaryContainer else colors.onSurfaceVariant,
+    )
 }
 
 @Composable

@@ -24,6 +24,7 @@ struct SettingsTab: View {
         NavigationStack {
             Form {
                 dongle
+                CarSection()
                 Section {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Runs in the background")
@@ -35,6 +36,10 @@ struct SettingsTab: View {
                         Text(model.recordsRoutes
                             ? model.routePermission
                             : "Uses GPS while the car is connected: trips on a map and where the car is parked. Stays on this device.")
+                    }
+                    Toggle(isOn: $model.looksUpAddresses) {
+                        Text("Addresses for trips")
+                        Text("Looks up the street address of each trip's start and end, and of the parking place, with Apple Maps. Sends those positions to Apple.")
                     }
                     Toggle(isOn: $record) {
                         Text("Record values for replay")
@@ -140,6 +145,72 @@ struct SettingsTab: View {
                 Text("The PIN is printed on the dongle. It stays on this device, in the Keychain. OpenPlug then keeps looking for the dongle — it answers when the ignition is on.")
             }
         }
+    }
+}
+
+/// What the dongle does not report: the tank size and the service interval.
+private struct CarSection: View {
+    @EnvironmentObject private var model: DongleModel
+    @State private var tank = ""
+    @State private var everyKm = ""
+    @State private var everyMonths = 0
+    @State private var loaded = false
+
+    var body: some View {
+        Section {
+            LabeledContent("Tank size") {
+                HStack {
+                    TextField("e.g. 50", text: $tank).multilineTextAlignment(.trailing)
+                    Text("l").foregroundStyle(.secondary)
+                }
+                #if os(iOS)
+                .keyboardType(.decimalPad)
+                #endif
+            }
+            LabeledContent("Service every") {
+                HStack {
+                    TextField("e.g. 15 000", text: $everyKm).multilineTextAlignment(.trailing)
+                    Text("km").foregroundStyle(.secondary)
+                }
+                #if os(iOS)
+                .keyboardType(.numberPad)
+                #endif
+            }
+            Picker("or every", selection: $everyMonths) {
+                Text("–").tag(0)
+                ForEach([6, 12, 24, 36], id: \.self) { m in
+                    Text(m % 12 == 0 ? (m == 12 ? "year" : "\(m / 12) years") : "\(m) months").tag(m)
+                }
+            }
+        } header: {
+            Text("Car")
+        } footer: {
+            Text("The tank size turns the litres the car reports into a fuel gauge. With the service interval of your car's service plan, OpenPlug counts down to the next service from the car's own \"since the last service\" counters, and reminds you 1000 km or 30 days before.")
+        }
+        .onAppear {
+            guard !loaded else { return }
+            loaded = true
+            let car = model.journal.car
+            let plain = { (v: Double) in v.formatted(.number.grouping(.never).precision(.fractionLength(0...1))) }
+            tank = car.tankL.map(plain) ?? ""
+            everyKm = car.serviceEveryKm.map(plain) ?? ""
+            everyMonths = car.serviceEveryDays.map { Int((Double($0) / 30.4375).rounded()) } ?? 0
+        }
+        .onChange(of: tank) { save() }
+        .onChange(of: everyKm) { save() }
+        .onChange(of: everyMonths) { save() }
+    }
+
+    private func save() {
+        guard loaded else { return }
+        func parse(_ text: String) -> Double? {
+            let digits = text.filter { !$0.isWhitespace }
+            if digits.isEmpty { return nil }
+            return (try? Double(digits, format: .number)) ?? Double(digits.replacingOccurrences(of: ",", with: "."))
+        }
+        let days = everyMonths > 0 ? UInt32((Double(everyMonths) * 30.4375).rounded()) : nil
+        let settings = CarSettings(tankL: parse(tank), serviceEveryKm: parse(everyKm), serviceEveryDays: days)
+        if settings != model.journal.car { model.setCar(settings) }
     }
 }
 

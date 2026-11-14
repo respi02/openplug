@@ -55,6 +55,7 @@ struct CarTab: View {
                     Hero(speed: text(Url.speed, "", 0) ?? "–", rpm: text(Url.rpm, "", 0) ?? "–",
                          trip: model.journal.tripRunning ? model.journal.active : nil)
                 }
+                if let due = model.journal.service, due.soon { ServiceDueCard(due: due) }
                 tiles
                 if !connected {
                     if model.recordsRoutes, let parked = model.journal.parked { ParkedCard(parked: parked) }
@@ -105,8 +106,10 @@ struct CarTab: View {
                 Panel {
                     Label("Fuel", systemImage: "fuelpump").font(.footnote.weight(.semibold)).foregroundStyle(Palette.quiet)
                     BigValue(fuel.map { number($0.value, 1) + " l" } ?? "–")
-                    if let percent = value(Url.fuelPercent) {
-                        ProgressView(value: min(max(percent.value / 100, 0), 1)).padding(.vertical, 6)
+                    if let level = value(Url.fuelPercent).map({ $0.value / 100 }) ?? model.journal.fuelFraction {
+                        ProgressView(value: min(max(level, 0), 1))
+                            .tint(level < 0.15 ? Palette.amber : Palette.accent)
+                            .padding(.vertical, 6)
                     }
                     if let range = text(Url.range, " km range", 0) { Caption(range) }
                 }
@@ -122,7 +125,12 @@ struct CarTab: View {
     @ViewBuilder private var service: some View {
         let days = text(Url.serviceDays, " days", 0)
         let distance = text(Url.serviceKm, " km", 0)
-        if days != nil || distance != nil {
+        if let due = model.journal.service, !due.soon {
+            Panel {
+                Caption("Next service")
+                Text(ServiceDueCard.left(due)).font(.title3.weight(.semibold)).padding(.top, 8)
+            }
+        } else if model.journal.service == nil, days != nil || distance != nil {
             Panel {
                 Caption("Since the last service")
                 HStack {
@@ -157,6 +165,39 @@ struct CarTab: View {
                 }
             }
         }
+    }
+}
+
+/// A reminder that the service is near or overdue.
+private struct ServiceDueCard: View {
+    let due: ServiceDue
+
+    static func left(_ due: ServiceDue) -> String {
+        var parts: [String] = []
+        if let km = due.kmLeft { parts.append(km < 0 ? number(-km, 0) + " km overdue" : "in " + number(km, 0) + " km") }
+        if let d = due.daysLeft {
+            parts.append(d < 0 ? "\(-d) days overdue" : d == 0 ? "today" : d == 1 ? "tomorrow" : "in \(d) days")
+        }
+        return parts.joined(separator: " or ")
+    }
+
+    var body: some View {
+        let overdue = (due.kmLeft ?? 1) < 0 || (due.daysLeft ?? 1) < 0
+        HStack(spacing: 12) {
+            Image(systemName: "wrench.and.screwdriver")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Palette.amber)
+                .frame(width: 32, height: 32)
+                .background(Palette.amberSoft, in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(overdue ? "Service overdue" : "Service due soon").fontWeight(.semibold)
+                Text(Self.left(due)).font(.subheadline).foregroundStyle(Palette.quiet)
+            }
+            Spacer()
+        }
+        .padding(16)
+        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Palette.amber.opacity(0.5)))
     }
 }
 

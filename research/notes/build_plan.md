@@ -34,18 +34,23 @@ Done since the first live run, all against stand-ins only: the trip log; automat
 reconnection and running in the background (Android: sticky service, BLE presence
 scan, boot/update receiver; iOS: pending connect, state restoration); value recording
 and replay; the three-tab UI with the car's last known state; routes on a map and the
-parking place; the trip in progress as a Live Activity / live notification; the app icon.
+parking place; the trip in progress as a Live Activity / live notification; the app icon;
+a start threshold for trips (3 km/h held for 3 s); filing trips (business/private, a
+note), deleting them, addresses for their ends (opt-in); the tank size as a fuel gauge;
+the service interval with a countdown and a reminder; the Android PIN sealed with a
+Keystore key; CI (GitHub Actions: core tests and clippy, the Android build, the iOS and
+macOS builds). The Android UI for these was built but not yet run on the phone.
 
 ## Next
 1. **A real drive, recorded.** With "Record values" and "Record routes" on. It settles
    at once: whether the trip rules hold (a trip was seen to start with the car
-   standing — a start threshold may be needed), whether Android's filtered scan matches
+   standing; the start threshold added for that is a guess to check), whether Android's filtered scan matches
    the real dongle's advertisement, how soon a waiting phone notices the car, GPS in the
    background on both platforms, and the Live Activity on a phone. The recording then
    becomes a test fixture (`examples/replay`, `fake_dongle --replay`).
-2. **Trip log, next features.** Notes and private/business type; addresses for trip
-   ends (reverse geocoding); a tank size setting so the fuel level can be drawn;
-   service reminders; editing and deleting trips.
+2. **Trip log, next features.** Manual trips; refuel price and station; a reminder
+   as a system notification, not only in the app; decoding group 9 (the car's own
+   service interval status) would make the interval setting unnecessary.
 3. **Protocol coverage.**
    - Decode the groups the app subscribes to that we do not label yet: 9 (service
      interval status), 11 (warning lights), 17 (boost pressure), 34 (catalyst
@@ -55,9 +60,8 @@ parking place; the trip in progress as a Live Activity / live notification; the 
    - Token authentication, so the PIN is not needed on every connect.
    - The raw OBD/UDS request path (`sendPDU`), which the app does not use for live
      values.
-4. **Polish and distribution.** The PIN in the Android Keystore rather than plain
-   preferences; signed Android releases; TestFlight (needs a paid developer account;
-   with a free one the iOS app has to be reinstalled every 7 days); CI.
+4. **Polish and distribution.** Signed Android releases; TestFlight (needs a paid
+   developer account; with a free one the iOS app has to be reinstalled every 7 days).
 
 ## Open questions
 - Token lifecycle: how long a token stays valid and whether it is bound to a phone.

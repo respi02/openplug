@@ -131,6 +131,14 @@ private struct Summary: View {
                 stat(fuel > 0 && fuelDistance >= 1 ? number(fuel / fuelDistance * 100, 1) : "–", "l/100 km average")
             }
             .padding(.top, 14)
+            let business = trips.filter { $0.kind == .business }.reduce(0) { $0 + $1.distanceKm }
+            let personal = trips.filter { $0.kind == .private }.reduce(0) { $0 + $1.distanceKm }
+            if business > 0 || personal > 0 {
+                let open = max(0, distance - business - personal)
+                Caption([(business, "business"), (personal, "private"), (open, "not filed")]
+                    .filter { $0.0 >= 0.05 }.map { km($0.0) + " " + $0.1 }.joined(separator: " · "))
+                    .padding(.top, 12)
+            }
         }
     }
 
@@ -150,8 +158,15 @@ private struct TripRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(clock(trip.startMs) + " – " + (running ? "now" : clock(trip.endMs))).fontWeight(.semibold)
+                HStack(spacing: 6) {
+                    Text(clock(trip.startMs) + " – " + (running ? "now" : clock(trip.endMs))).fontWeight(.semibold)
+                    if trip.kind != .unset { KindBadge(kind: trip.kind) }
+                }
+                if let place = places { Text(place).font(.subheadline).lineLimit(1) }
                 Text(details).font(.subheadline).foregroundStyle(Palette.quiet)
+                if !trip.note.isEmpty {
+                    Text(trip.note).font(.subheadline).italic().foregroundStyle(Palette.quiet).lineLimit(2)
+                }
             }
             Spacer()
             Text(km(trip.distanceKm)).font(.system(size: 20, weight: .semibold, design: .rounded)).monospacedDigit()
@@ -160,11 +175,39 @@ private struct TripRow: View {
         .contentShape(Rectangle())
     }
 
+    /// "Brno → Blansko": the towns (or streets) of the ends, when looked up.
+    private var places: String? {
+        func short(_ a: String?) -> String? { a.nonEmpty.map { $0.components(separatedBy: ", ").last ?? $0 } }
+        switch (short(trip.startAddress), short(trip.endAddress)) {
+        case let (a?, b?) where a == b:
+            // a trip within one town: the streets say more
+            let streets = [trip.startAddress, trip.endAddress].compactMap { $0?.components(separatedBy: ", ").first }
+            return streets.joined(separator: " → ")
+        case let (a?, b?): return a + " → " + b
+        case let (a?, nil): return a
+        case let (nil, b?): return b
+        default: return nil
+        }
+    }
+
     private var details: String {
         var parts = [duration(trip.movingS)]
         if let c = trip.consumptionLPer100km { parts.append(number(c, 1) + " l/100 km") }
         if running { parts.append("in progress") }
         return parts.joined(separator: " · ")
+    }
+}
+
+struct KindBadge: View {
+    let kind: TripKind
+
+    var body: some View {
+        let business = kind == .business
+        Text(business ? "Business" : "Private")
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(business ? Palette.accentSoft : Palette.chip, in: Capsule())
+            .foregroundStyle(business ? Palette.onAccentSoft : Palette.quiet)
     }
 }
 

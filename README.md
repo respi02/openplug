@@ -81,12 +81,17 @@ Both apps have the same three tabs.
 - **Car** — while connected: speed, engine speed and the trip in progress, fuel and
   range, odometer, temperatures, battery. While the car is away: its **last known
   state** with the time it was seen, the last trip, the time and distance since the
-  last service, and (with routes on) where it is **parked**, on a map.
+  last service, and (with routes on) where it is **parked**, on a map. With the tank
+  size set, a fuel gauge; with the service interval set, a countdown to the next
+  service and a **reminder** 1000 km or 30 days before it.
 - **Trips** — a **trip log** kept by the phone: a summary for the last 7 days, the
   month or the year; trips by day with **refuels** in between; a trip's detail with its
-  numbers and, with routes on, its **route on a map** and the speed along it.
-- **Settings** — the dongle and its PIN, running in the background, routes, value
-  recordings, every live signal the dongle streams, CSV export of the trips.
+  numbers and, with routes on, its **route on a map** and the speed along it. Trips
+  can be filed as **business or private** with a note, or deleted; with addresses on,
+  each shows where it started and ended.
+- **Settings** — the dongle and its PIN, the car (tank size, service interval),
+  running in the background, routes, addresses, value recordings, every live signal
+  the dongle streams, CSV export of the trips (with type, addresses and notes).
 
 Around that:
 
@@ -96,11 +101,13 @@ Around that:
 - **The trip in progress at a glance**: a Live Activity on iOS (lock screen, Dynamic
   Island), a live notification on Android (a Live Update on Android 16+).
 - **Routes are opt-in.** The phone's position is taken only while the car is connected,
-  stays on the device, and is never written to value recordings.
+  stays on the device, and is never written to value recordings. **Addresses** are a
+  second opt-in: they send the trip ends and the parking place to a geocoder (Apple
+  Maps on iOS; on Android the phone's own, or OpenStreetMap's Nominatim).
 - **Record and replay.** A session's value stream can be recorded and replayed later at
   the desk, into the trip log or out of the fake dongle.
 
-Not there yet: trip notes and types, addresses, driving score, the warning-light and
+Not there yet: manual trips, refuel prices, driving score, the warning-light and
 AdBlue groups, the dongle's token authentication (the PIN is used on every connect),
 and the raw OBD/UDS request path. What the original app offered, feature by feature,
 is in [`original_app_features.md`](research/notes/original_app_features.md).
@@ -124,7 +131,7 @@ BluetoothSppTransport             CoreBluetoothTransport
 | `srp`, `tls_prf`, `tls_handshake`, `tls_record`, `tls_client` | the TLS-SRP tunnel: SRP-6a (RFC 5054), TLS 1.2 with Encrypt-then-MAC (RFC 7366) and Extended Master Secret (RFC 7627), AES-128-CBC + HMAC-SHA1. Pure Rust, no C dependency |
 | `protobuf` | schema-less protobuf wire codec |
 | `dongle` | the application protocol: Subscribe request, DataElement decode, signal catalog |
-| `journal` | trips and refuels from the value stream (start, pause, resume, finish; JSON file), the car's last known values, and — from position fixes — each trip's route and the parking place |
+| `journal` | trips and refuels from the value stream (start, pause, resume, finish; JSON file), the car's last known values, and — from position fixes — each trip's route and the parking place; filing trips (type, note, addresses), deleting them; the car's tank size and service interval, and the service countdown |
 | `recording` | records the value stream to a file and replays it into a journal |
 | `link` | the read API: connect → authenticate → subscribe → stream of values |
 | `ffi` | the UniFFI facade for Kotlin and Swift (feature `ffi`) |
@@ -189,11 +196,11 @@ the link — stop it while using OpenPlug.
 ## Roadmap
 
 1. Prove the trip log, routes, background behaviour and the Live Activity on real
-   drives, and tune the trip rules against recorded drives.
-2. Trip notes and types (private / business), addresses for trip ends, a tank size so
-   the fuel level can be drawn, service reminders.
+   drives, and tune the trip rules (the start threshold among them) against recorded
+   drives.
+2. Trip log: manual trips, refuel price and station.
 3. More of the protocol: warning lights, AdBlue, token authentication.
-4. Distribution: signed Android releases, TestFlight; the PIN in the Android Keystore.
+4. Distribution: signed Android releases, TestFlight.
 5. More cars: the catalog so far reflects one vehicle.
 
 ## Documentation

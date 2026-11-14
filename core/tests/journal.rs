@@ -249,3 +249,123 @@ fn positions_become_a_route_and_a_parking_place() {
     std::fs::remove_file(&path).unwrap();
     std::fs::remove_dir_all(path.with_extension("tracks")).unwrap();
 }
+
+#[test]
+fn a_standing_car_reporting_a_crawl_starts_no_trip() {
+    let mut j = Journal::in_memory();
+    let mut t = 1_000;
+    j.on_connected(t);
+    drive(&mut j, &mut t, 1.5, 120); // engine running, the speedometer creeping
+    assert!(j.active_trip().is_none());
+    // a single spike, or two, is not moving off either
+    for v in [0.0, 8.0, 9.0, 0.0, 12.0, 0.0] {
+        j.on_values(&[el(SPEED, v)], t);
+        t += 1000;
+    }
+    assert!(j.active_trip().is_none());
+}
+
+#[test]
+fn a_trip_starts_where_the_car_moved_off() {
+    let mut j = Journal::in_memory();
+    let mut t = 100_000;
+    j.on_connected(t);
+    j.on_position(49.2, 16.6, t);
+    drive(&mut j, &mut t, 0.0, 5);
+    let moved_off = t;
+    drive(&mut j, &mut t, 4.0, 3); // not yet
+    assert!(j.active_trip().is_none());
+    drive(&mut j, &mut t, 30.0, 1); // three seconds at or above the threshold
+    let trip = j.active_trip().expect("started");
+    assert_eq!(trip.start_ms, moved_off);
+    assert_eq!(trip.start_pos.unwrap().lat, 49.2, "the last fix marks the start");
+    assert!(trip.distance_km > 0.0, "the samples before confirmation count");
+    assert!(j.trip_state() == openplug_core::journal::TripState::Running);
+}
+
+#[test]
+fn a_paused_trip_does_not_resume_on_a_crawl() {
+    let mut j = Journal::in_memory();
+    let mut t = 1_000;
+    j.on_connected(t);
+    drive(&mut j, &mut t, 50.0, 120);
+    j.on_disconnected(t);
+    t += 60_000;
+    j.on_connected(t);
+    drive(&mut j, &mut t, 1.0, 60);
+    assert_eq!(j.trip_state(), openplug_core::journal::TripState::Paused);
+    drive(&mut j, &mut t, 50.0, 10);
+    assert_eq!(j.trip_state(), openplug_core::journal::TripState::Running);
+}
+
+#[test]
+fn trips_can_be_filed_annotated_and_deleted() {
+    use openplug_core::journal::TripKind;
+    let path = std::env::temp_dir().join(format!("openplug-filing-{}.json", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let mut t = 1_763_100_000_000;
+    let (first, second);
+    {
+        let mut j = Journal::open(&path).unwrap();
+        for _ in 0..2 {
+            j.on_connected(t);
+            j.on_position(49.2, 16.6, t);
+            drive(&mut j, &mut t, 60.0, 120);
+            j.on_position(49.21, 16.6, t);
+            j.on_disconnected(t);
+            t += TRIP_FINISH_AFTER_MS;
+            j.tick(t);
+        }
+        first = j.trips()[0].start_ms;
+        second = j.trips()[1].start_ms;
+        assert!(j.set_trip_details(first, TripKind::Business, "  Client visit, \"Brno\"  "));
+        assert!(j.set_trip_addresses(first, Some("Main St 1, Brno".into()), None));
+        assert!(j.set_trip_addresses(first, None, Some("Hill Rd 2, Brno".into())));
+        assert!(!j.set_trip_details(42, TripKind::Private, ""), "no such trip");
+        assert!(!j.track(second).is_empty());
+        assert!(j.delete_trip(second));
+        assert!(!j.delete_trip(second));
+        assert!(j.track(second).is_empty(), "the route goes with it");
+    }
+    let j = Journal::open(&path).unwrap();
+    assert_eq!(j.trips().len(), 1);
+    let trip = &j.trips()[0];
+    assert_eq!((trip.kind, trip.note.as_str()), (TripKind::Business, "Client visit, \"Brno\""));
+    assert_eq!(trip.start_address.as_deref(), Some("Main St 1, Brno"));
+    assert_eq!(trip.end_address.as_deref(), Some("Hill Rd 2, Brno"));
+    let csv = j.export_csv();
+    assert!(csv.lines().next().unwrap().ends_with(",type,start_address,end_address,note"));
+    assert!(
+        csv.lines().nth(1).unwrap().ends_with(r#",business,"Main St 1, Brno","Hill Rd 2, Brno","Client visit, ""Brno""""#),
+        "{csv}"
+    );
+    std::fs::remove_file(&path).unwrap();
+    let _ = std::fs::remove_dir_all(path.with_extension("tracks"));
+}
+
+#[test]
+fn the_tank_size_and_service_interval_give_a_level_and_a_reminder() {
+    use openplug_core::journal::CarProfile;
+    const DAYS_SINCE: u32 = 0x0007_0009;
+    const KM_SINCE: u32 = 0x0007_0012;
+    const DAY: u64 = 86_400_000;
+    let mut j = Journal::in_memory();
+    let t = 1_763_100_000_000;
+    j.on_connected(t);
+    j.on_values(&[el(FUEL, 37.5), el(DAYS_SINCE, 179.0), el(KM_SINCE, 6100.0)], t);
+    assert_eq!(j.fuel_fraction(), None, "no tank size yet");
+    assert_eq!(j.service_status(t), None, "no interval yet");
+
+    j.set_profile(CarProfile { tank_l: Some(50.0), service_every_km: Some(15_000.0), service_every_days: Some(365) });
+    assert_eq!(j.fuel_fraction(), Some(0.75));
+    let s = j.service_status(t + 10 * DAY).unwrap();
+    assert_eq!((s.km_left, s.days_left, s.read_ms), (Some(8_900.0), Some(176), t));
+    assert!(!s.due_soon());
+    assert!(j.service_status(t + 160 * DAY).unwrap().due_soon(), "the date comes first");
+
+    j.set_profile(CarProfile { tank_l: Some(-3.0), service_every_km: Some(6_500.0), service_every_days: Some(0) });
+    assert_eq!(j.profile(), CarProfile { tank_l: None, service_every_km: Some(6_500.0), service_every_days: None });
+    let s = j.service_status(t).unwrap();
+    assert_eq!((s.km_left, s.days_left), (Some(400.0), None));
+    assert!(s.due_soon());
+}
