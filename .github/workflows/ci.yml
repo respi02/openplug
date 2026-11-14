@@ -1,0 +1,93 @@
+# Builds and tests everything that can be checked without a car: the Rust core
+# (tests + clippy), the Android app, and the iOS/macOS app.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core (test, clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Test
+        working-directory: core
+        run: cargo test --features ffi
+      - name: Clippy
+        working-directory: core
+        run: cargo clippy --features ffi --all-targets -- -D warnings
+
+  android:
+    name: Android app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the core and the Kotlin bindings
+        # the runner image comes with the Android SDK and a current NDK
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" android/build-core.sh
+      - name: Build the app
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+  apple:
+    name: iOS and macOS app
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Build the core and the Swift bindings
+        run: apple/build-core.sh
+      - name: Generate the Xcode project
+        working-directory: apple
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build for macOS
+        working-directory: apple
+        run: >
+          xcodebuild -scheme OpenPlug -destination platform=macOS -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO build
+      - name: Build for the iOS simulator
+        working-directory: apple
+        run: >
+          xcodebuild -scheme OpenPlug -destination 'generic/platform=iOS Simulator' -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO build
+      - name: Build the command-line tools
+        working-directory: apple
+        run: swift build

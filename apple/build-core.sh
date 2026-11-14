@@ -22,6 +22,7 @@ cargo run --quiet --features bindgen --bin uniffi-bindgen -- generate \
 mkdir -p "$tmp/Headers"
 cp "$tmp/OpenPlugCoreFFI.h" "$tmp/Headers/"
 cp "$tmp/OpenPlugCoreFFI.modulemap" "$tmp/Headers/module.modulemap"
+mkdir -p "$here/Sources/OpenPlugCore"
 cp "$tmp/OpenPlugCore.swift" "$here/Sources/OpenPlugCore/"
 
 rm -rf "$here/OpenPlugCoreFFI.xcframework"
