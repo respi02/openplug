@@ -4,7 +4,8 @@
 //!                                      [--replay RECORDING.jsonl [--speed N]]
 //!
 //! Speaks the real stack (TLS-SRP, cipher 0xC01D, length-delimited protobuf) and
-//! answers Subscribe requests with a stream of values. By default the values are
+//! answers Subscribe requests with a stream of values, to any number of clients at
+//! once. By default the values are
 //! SYNTHETIC; the wire format and the paramId → object grouping follow the real dongle.
 //!
 //! With `--replay` it plays back a recorded drive instead (see
@@ -231,7 +232,19 @@ fn main() -> io::Result<()> {
             Err(e) => return Err(e),
         };
         stream.set_nonblocking(false)?;
-        println!("client {}", stream.peer_addr()?);
+        let peer = stream.peer_addr()?;
+        println!("client {peer}");
+        if replay.is_none() {
+            // Synthetic values: serve every client at once (say a phone and a simulator).
+            // A replay has one timeline, so it serves one client at a time like the dongle.
+            let pin = pin.clone();
+            std::thread::spawn(move || match serve(stream, &pin, None) {
+                Err(HsError::Closed) => println!("  client {peer} closed"),
+                Err(e) => println!("  client {peer} ended: {e}"),
+                Ok(()) => println!("  dropped client {peer}"),
+            });
+            continue;
+        }
         if let Some(r) = replay.as_mut() {
             r.start_clock();
             while r.step().is_some() {} // catch up to now
