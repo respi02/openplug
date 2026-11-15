@@ -504,7 +504,7 @@ final class DongleModel: ObservableObject {
     ) -> LinkState {
         func makeTransport() -> SessionTransport {
             switch target {
-            case .bluetooth: return CoreBluetoothTransport(waitForBluetooth: true)
+            case .bluetooth: return CoreBluetoothTransport(waitForBluetooth: true, skipping: DongleCentral.rejected(for: pin))
             #if DEBUG
             case .demo(let host): return TcpTransport(host: host, port: 4455)
             #endif
@@ -522,10 +522,18 @@ final class DongleModel: ObservableObject {
             do {
                 try stream(transport, pin: pin, trips: trips, recorder: recorder, publish: publish) {
                     wasConnected = true
+                    (transport as? CoreBluetoothTransport)?.remember() // the PIN worked: this is ours
                 }
                 problem = "The connection ended."
             } catch DongleError.WrongPin {
                 transport.close()
+                // A dongle met for the first time that refuses may be another car's: skip it
+                // on the next try with the same PIN.
+                if let ble = transport as? CoreBluetoothTransport, let id = ble.peripheralID,
+                   id != DongleCentral.knownPeripheral {
+                    DongleCentral.reject(id, pin: pin)
+                    return .failed("The dongle rejected the PIN. If another car with a DataPlug is near, press Connect again: OpenPlug then tries the next dongle.")
+                }
                 return .failed("The dongle rejected the PIN.")
             } catch DongleError.Closed {
                 problem = "The dongle closed the connection."

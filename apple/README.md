@@ -160,6 +160,10 @@ Details and the investigation: [`research/notes/ble_transport.md`](../research/n
 - Find the dongle by its service UUID, not by name (seen: `DP_2_1_<serial>` and
   `CARe`). It is not MFi and needs no bonding. It serves one client and stops
   advertising while a phone is connected to it.
+- A new dongle is taken as the first one with that service to answer, and remembered
+  (`DongleCentral.knownPeripheral`) only once it accepted the PIN. A first-met dongle
+  that refuses the PIN is skipped on the next try with the same PIN — likely another
+  car's nearby; a different PIN clears that, so a typo never locks out your own.
 
 `ByteTransport.recv` blocks while Core Bluetooth is callback-driven: the transport
 queues the bytes of each completed read and `recv` waits on that queue from the

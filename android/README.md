@@ -23,6 +23,7 @@ Android BluetoothSocket (RFCOMM/SPP)      openplug-core (TLS-SRP + protocol)
 | `CarTab.kt`, `TripsTab.kt`, `TripDetail.kt`, `SettingsTab.kt` | the screens |
 | `Session.kt` | the one dongle session: connect, stream, wait and reconnect; feeds the journal |
 | `DongleService.kt` | the foreground service and its live notification |
+| `DongleFinder.kt` | finds dongles nearby and pairs with them (see below) |
 | `Presence.kt` | notices the dongle advertising (BLE scan), resumes after boot or update |
 | `PositionFeed.kt` | the phone's position while connected, for routes |
 | `Settings.kt` | stored choices (dongle, PIN, switches) |
@@ -147,17 +148,38 @@ Both OpenStreetMap services ask for attribution: the maps carry osmdroid's
 "© OpenStreetMap contributors" overlay, and addresses from Nominatim are captioned
 "Addresses © OpenStreetMap contributors".
 
+## Finding and pairing the dongle
+
+As with the original app, the dongle is **not** paired in the system Bluetooth
+settings (its makers say not to). Settings › Dongle lists paired dongles and finds
+new ones with **Find the dongle** (it also searches by itself while none is known):
+classic discovery for names starting with `DP_` (the original app accepts `DP_2_0`,
+`DP_2_1`, `DP_2_2`, the hardware revisions), together with a BLE scan for the vendor
+service `732DB477-…`, which finds it whatever its name. The dongle is dual-mode with
+one address, so either result is connected over Classic SPP.
+
+On **Connect**, an unpaired dongle is paired from the app first (`createBond()`; the
+system may ask to confirm), as the original app did; the connection is tried either
+way. `BluetoothSppTransport` then opens an **insecure** RFCOMM socket, which needs no
+bond — the dongle authenticates the phone with TLS-SRP and the label PIN — and falls
+back to a secure one; the kind that worked is tried first next time. Per the
+dongle's manual it takes a new phone within 2 minutes of switching the ignition on
+(it then blinks green and blue). Not yet checked with a dongle that never met the
+phone, nor with the `DP_2_0`/`DP_2_2` revisions.
+
 ## Permissions
 `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` / `ACCESS_BACKGROUND_LOCATION` and
 `INTERNET` only serve routes, maps and addresses (above); location is asked for when
 routes are switched on.
-`BLUETOOTH_CONNECT` (Android 12+) to talk to the bonded dongle; `BLUETOOTH_SCAN`
-(`neverForLocation`) to notice it advertising, optional (without it only timed
-retries). `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_CONNECTED_DEVICE` and
+`BLUETOOTH_CONNECT` (Android 12+) to talk to the dongle; `BLUETOOTH_SCAN`
+(`neverForLocation`) to find it and to notice it advertising (without it only timed
+retries); before Android 12, finding it needs `ACCESS_FINE_LOCATION` instead. Note:
+with `neverForLocation` Android may filter BLE beacons out of scan results, and the
+dongle's advertisement carries iBeacon data — to be checked at the car; classic
+discovery by name is not affected. `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_CONNECTED_DEVICE` and
 `POST_NOTIFICATIONS` for the session service; `WAKE_LOCK`,
 `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` and `RECEIVE_BOOT_COMPLETED` for running in
-the background (above). Pair the
-dongle (`DP_2_1_…`) in the system Bluetooth settings first.
+the background (above).
 
 ## Notes from the first live run
 - The label PIN is alphanumeric (ours: 8 capital letters).

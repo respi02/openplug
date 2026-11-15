@@ -33,6 +33,11 @@ object Settings {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun target(context: Context): String? = prefs(context).getString(KEY_TARGET, null)
+
+    /** The name the chosen dongle had when it was found (it may not be paired, so the system may not know it). */
+    fun targetName(context: Context): String? = prefs(context).getString("target_name", null)
+
+    fun setTargetName(context: Context, name: String?) = prefs(context).edit().putString("target_name", name).apply()
     fun pin(context: Context): String {
         val prefs = prefs(context)
         prefs.getString(KEY_PIN_PLAIN, null)?.let { plain ->

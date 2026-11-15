@@ -42,6 +42,27 @@ public final class DongleCentral: NSObject, @unchecked Sendable {
 
     private static let knownKey = "OpenPlug.dongleIdentifier"
 
+    private static let rejectedLock = NSLock()
+    nonisolated(unsafe) private static var rejectedPin: String?
+    nonisolated(unsafe) private static var rejectedIDs: Set<UUID> = []
+
+    /// Notes that a dongle refused `pin`: likely someone else's dongle nearby (another
+    /// car with one). Kept in memory only, and forgotten as soon as a different PIN is
+    /// used, so a mistyped PIN never locks out the user's own dongle.
+    public static func reject(_ id: UUID, pin: String) {
+        rejectedLock.lock()
+        defer { rejectedLock.unlock() }
+        if rejectedPin != pin { rejectedPin = pin; rejectedIDs = [] }
+        rejectedIDs.insert(id)
+    }
+
+    /// The dongles that refused `pin`.
+    public static func rejected(for pin: String) -> Set<UUID> {
+        rejectedLock.lock()
+        defer { rejectedLock.unlock() }
+        return rejectedPin == pin ? rejectedIDs : []
+    }
+
     /// The Core Bluetooth identifier of the last dongle connected (per phone).
     public static var knownPeripheral: UUID? {
         get { UserDefaults.standard.string(forKey: knownKey).flatMap(UUID.init(uuidString:)) }

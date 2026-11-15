@@ -30,6 +30,7 @@ do {
     FileHandle.standardError.write(Data("connected to \(transport.peripheralName ?? "dongle"); handshake …\n".utf8))
 
     let dongle = try Dongle.connect(transport: transport, pin: pin)
+    transport.remember() // the PIN worked: reconnect to this dongle next time
     try dongle.subscribeDefaults()
     FileHandle.standardError.write(Data("authenticated; streaming\n".utf8))
 

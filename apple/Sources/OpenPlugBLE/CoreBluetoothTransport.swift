@@ -63,9 +63,23 @@ public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked S
     /// (a one-shot command-line run).
     private let waitForBluetooth: Bool
 
-    public init(waitForBluetooth: Bool = false) {
+    /// Dongles not to take (they refused the PIN in use; see ``DongleCentral/reject(_:pin:)``).
+    private let skipping: Set<UUID>
+
+    /// The Core Bluetooth identifier of the dongle taken, once there is one.
+    public private(set) var peripheralID: UUID?
+
+    public init(waitForBluetooth: Bool = false, skipping: Set<UUID> = []) {
         self.waitForBluetooth = waitForBluetooth
+        self.skipping = skipping
         super.init()
+    }
+
+    /// Makes the dongle taken the one to reconnect to (``DongleCentral/knownPeripheral``).
+    /// Call it once the dongle accepted the PIN, so a stranger's dongle that happened to
+    /// answer first is never remembered.
+    public func remember() {
+        if let id = peripheralID { DongleCentral.knownPeripheral = id }
     }
 
     /// Starts looking for the dongle without waiting. Call it as early as possible
@@ -186,7 +200,7 @@ public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked S
         candidates = []
         peripheral = p
         peripheralName = peripheralName ?? p.name
-        DongleCentral.knownPeripheral = p.identifier
+        peripheralID = p.identifier
         p.delegate = self
         setStage("discovering services")
         p.discoverServices([Self.service])
@@ -240,7 +254,7 @@ public final class CoreBluetoothTransport: NSObject, ByteTransport, @unchecked S
     }
 
     func didDiscover(_ p: CBPeripheral, advertisementData: [String: Any]) {
-        guard peripheral == nil else { return }
+        guard peripheral == nil, !skipping.contains(p.identifier) else { return }
         if let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String { peripheralName = name }
         setStage("connecting")
         connect(p)

@@ -1,9 +1,11 @@
 package com.openplug
 
 import android.Manifest
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import android.bluetooth.BluetoothAdapter
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -65,8 +67,8 @@ import com.openplug.core.CarSettings
 import com.openplug.core.Reading
 import java.util.Locale
 
-/** Something the user can connect to: a bonded dongle, or (debug) the fake one. */
-private data class Target(val id: String, val label: String)
+/** Something the user can connect to: a dongle, or (debug) the fake one. [detail] says how it is known. */
+private data class Target(val id: String, val label: String, val detail: String? = null)
 
 /**
  * Bluetooth to reach the dongle (and to notice it advertising nearby, which lets a
@@ -87,14 +89,18 @@ private fun hasBluetoothPermission(context: Context): Boolean =
         PackageManager.PERMISSION_GRANTED
 
 @SuppressLint("MissingPermission") // called only when hasBluetoothPermission() is true
-private fun targets(context: Context): List<Target> {
-    val bonded: Set<BluetoothDevice> =
-        context.getSystemService(BluetoothManager::class.java)?.adapter?.bondedDevices.orEmpty()
-    val dongles = bonded
-        .sortedByDescending { it.name?.startsWith("DP_") == true } // DataPlugs first
-        .map { d -> Target(d.address, d.name ?: d.address) }
-    val fake = Target(Settings.FAKE_ID, "Fake dongle (TCP 127.0.0.1:4455)")
-    return if (BuildConfig.DEBUG) dongles + fake else dongles
+private fun targets(context: Context, found: List<Target>): List<Target> {
+    val bonded = DongleFinder.adapter(context)?.bondedDevices.orEmpty()
+        .filter { DongleFinder.isDongleName(it.name) }
+        .map { d -> Target(d.address, d.name ?: d.address, "paired") }
+    val list = (bonded + found.filter { f -> bonded.none { it.id == f.id } }).toMutableList()
+    // the one chosen before, also when it is out of reach and not paired
+    val saved = Settings.target(context)
+    if (saved != null && saved != Settings.FAKE_ID && list.none { it.id == saved }) {
+        list += Target(saved, Settings.targetName(context) ?: saved, "chosen before")
+    }
+    if (BuildConfig.DEBUG) list += Target(Settings.FAKE_ID, "Fake dongle (TCP 127.0.0.1:4455)")
+    return list
 }
 
 @Composable
@@ -161,16 +167,56 @@ private fun DongleSection() {
         granted = hasBluetoothPermission(context)
     }
     if (!granted) {
-        Text("OpenPlug needs the Nearby devices permission to reach the dongle over Bluetooth, and shows a notification while it is connected.")
+        Text("OpenPlug needs the Nearby devices permission to find the dongle and reach it over Bluetooth, and shows a notification while it is connected.")
         Spacer(Modifier.height(8.dp))
         Button(onClick = { askPermissions.launch(wantedPermissions()) }) { Text("Allow") }
         return
     }
 
-    val all = remember(granted) { targets(context) }
+    val found = remember { mutableStateListOf<Target>() }
+    var searching by remember { mutableStateOf(false) }
+    var stopSearch by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pairing by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var bluetoothOn by remember { mutableStateOf(DongleFinder.adapter(context)?.isEnabled == true) }
+    LifecycleResumeEffect(Unit) {
+        bluetoothOn = DongleFinder.adapter(context)?.isEnabled == true
+        refresh++
+        onPauseOrDispose { stopSearch?.invoke() }
+    }
+    fun search() {
+        if (searching || !bluetoothOn) return
+        searching = true
+        stopSearch = DongleFinder.search(
+            context,
+            onFound = { address, name ->
+                if (found.none { it.id == address }) found += Target(address, name ?: address, "nearby")
+            },
+            onDone = {
+                searching = false
+                stopSearch = null
+                refresh++
+            },
+        )
+    }
+    val askSearch = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (DongleFinder.canSearch(context)) search()
+    }
+    fun find() = if (DongleFinder.canSearch(context)) search() else askSearch.launch(DongleFinder.permissions())
+    val enableBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        bluetoothOn = DongleFinder.adapter(context)?.isEnabled == true
+        if (bluetoothOn) find()
+    }
+
+    val all = remember(refresh, found.size) { targets(context, found) }
     var pin by remember { mutableStateOf(Settings.pin(context)) }
     var selected by remember { mutableStateOf(Settings.target(context)) }
     val active = state !is LinkState.Idle && state !is LinkState.Failed
+
+    // nothing known yet: look right away
+    LaunchedEffect(bluetoothOn) {
+        if (bluetoothOn && all.none { it.id != Settings.FAKE_ID } && DongleFinder.canSearch(context)) search()
+    }
 
     if (active) {
         // a running session: what it is doing, and the way out
@@ -198,9 +244,11 @@ private fun DongleSection() {
         return
     }
 
-    if (all.isEmpty()) {
-        Text("No paired Bluetooth devices. Pair the dongle (DP_…) in the system Bluetooth settings first.")
-        return
+    if (!bluetoothOn) {
+        Text("Bluetooth is off.")
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)) }) { Text("Turn on Bluetooth") }
+        Spacer(Modifier.height(12.dp))
     }
     all.forEach { t ->
         Row(
@@ -208,10 +256,28 @@ private fun DongleSection() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RadioButton(selected = t.id == selected, onClick = null, modifier = Modifier.padding(end = 12.dp))
-            Text(t.label)
+            Column {
+                Text(t.label)
+                t.detail?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
-    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(enabled = bluetoothOn && !searching, onClick = { find() }) {
+            Text(if (searching) "Searching…" else "Find the dongle")
+        }
+        if (searching) CircularProgressIndicator(Modifier.height(20.dp).padding(start = 12.dp), strokeWidth = 2.dp)
+    }
+    Text(
+        "Switch the ignition on first. A dongle takes a new phone within 2 minutes of that (it then blinks green and blue). " +
+            "Don't pair it in the phone's Bluetooth settings: OpenPlug pairs it when you connect.",
+        Modifier.padding(top = 4.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(12.dp))
     OutlinedTextField(
         value = pin,
         onValueChange = { pin = it.trim() },
@@ -228,12 +294,32 @@ private fun DongleSection() {
     Spacer(Modifier.height(12.dp))
     val target = all.firstOrNull { it.id == selected }
     Button(
-        enabled = target != null && pin.isNotEmpty(),
+        enabled = target != null && pin.isNotEmpty() && !pairing,
         onClick = {
-            askPermissions.launch(wantedPermissions()) // scanning and notifications, if not asked yet
-            Session.start(context, SessionSettings(target!!.id, pin, Settings.record(context)))
+            val t = target!!
+            stopSearch?.invoke()
+            askPermissions.launch(wantedPermissions()) // notifications, if not asked yet
+            Settings.setTargetName(context, t.label)
+            val start = { Session.start(context, SessionSettings(t.id, pin, Settings.record(context))) }
+            if (t.id == Settings.FAKE_ID) {
+                start()
+            } else {
+                // first contact: pair, as the original app did (the connection is tried either way)
+                pairing = true
+                DongleFinder.pair(context, t.id) {
+                    pairing = false
+                    start()
+                }
+            }
         },
-    ) { Text("Connect") }
+    ) { Text(if (pairing) "Pairing…" else "Connect") }
+    if (pairing) {
+        Text(
+            "If the phone asks to pair with the dongle, confirm it.",
+            Modifier.padding(top = 8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
     (state as? LinkState.Failed)?.let {
         Spacer(Modifier.height(8.dp))
         Text(it.message, color = MaterialTheme.colorScheme.error)
