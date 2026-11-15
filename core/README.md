@@ -21,6 +21,7 @@ protocol). Bindings for Android/iOS come from the UniFFI facade in `src/ffi.rs`.
 ## Examples
 - `live` — desktop harness: `--serial DEVICE` (paired dongle) or `--tcp HOST:PORT`
 - `fake_dongle` — stand-in dongle on TCP with synthetic values
+- `demo_journal` — writes a demo trip log (two weeks of made-up drives around Brno with routes, a refuel, addresses and filed trips) whose last values match `fake_dongle`'s: `cargo run --example demo_journal -- journal-demo.json`, then copy it (with its `.tracks/` folder) to where an app keeps `journal-demo.json` (and `journal.json` to see it without connecting)
 - `clienthello` — emits the byte-exact ClientHello record (used while probing BLE)
 
 ## Test (offline, no dongle)

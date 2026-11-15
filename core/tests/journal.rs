@@ -167,8 +167,15 @@ fn the_journal_survives_a_restart_mid_trip() {
     assert_eq!(j.trips().len(), 1);
     assert!((j.trips()[0].distance_km - 3.0).abs() < 0.05);
 
+    assert!(!path.with_extension("tmp").exists(), "the temporary file was renamed into place");
+
     std::fs::write(&path, b"not json").unwrap();
     assert!(Journal::open(&path).is_err(), "a damaged log is reported, not overwritten");
+
+    // what a crash could leave behind before saves were flushed: nothing to protect
+    std::fs::write(&path, b"").unwrap();
+    let j = Journal::open(&path).expect("an empty file opens as an empty log");
+    assert!(j.trips().is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

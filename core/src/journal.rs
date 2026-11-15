@@ -288,9 +288,12 @@ impl Journal {
     }
 
     /// Opens (or creates) the journal stored in `path`. An unreadable file is an
-    /// error rather than silently starting empty, so a log is never overwritten.
+    /// error rather than silently starting empty, so a log is never overwritten. An
+    /// empty file holds nothing to protect (what earlier versions could leave behind
+    /// after a crash, see [`write_durably`]) and opens as an empty journal.
     pub fn open(path: &Path) -> std::io::Result<Self> {
         let data = match std::fs::read(path) {
+            Ok(bytes) if bytes.is_empty() => Data::default(),
             Ok(bytes) => serde_json::from_slice(&bytes)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Data::default(),
@@ -686,7 +689,7 @@ impl Journal {
             Some(file) => {
                 if let (Some(dir), Ok(bytes)) = (file.parent(), serde_json::to_vec(track)) {
                     let _ = std::fs::create_dir_all(dir);
-                    let _ = std::fs::write(file, bytes);
+                    let _ = write_durably(&file, &bytes);
                 }
             }
             None => {
@@ -714,15 +717,35 @@ impl Journal {
                 if let Some(dir) = file.parent() {
                     let _ = std::fs::create_dir_all(dir);
                 }
-                let _ = std::fs::write(file, bytes);
+                let _ = write_durably(&file, &bytes);
             }
         }
         let Ok(bytes) = serde_json::to_vec(&self.data) else { return };
-        let tmp = path.with_extension("tmp");
-        if std::fs::write(&tmp, bytes).is_ok() {
-            let _ = std::fs::rename(&tmp, path);
+        let _ = write_durably(path, &bytes);
+    }
+}
+
+/// Replaces the file at `path` with `bytes` so that a crash or a power loss at any
+/// moment leaves either the old contents or the new ones: written to a temporary file,
+/// flushed to the disk, renamed over the old file, and the directory flushed too.
+/// (A plain write and rename without the flush can leave an empty file behind after
+/// the phone goes down, which is how a test phone lost a trip log.)
+fn write_durably(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = path.with_extension("tmp");
+    {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)?;
+    #[cfg(unix)]
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        if let Ok(dir) = std::fs::File::open(dir) {
+            let _ = dir.sync_all();
         }
     }
+    Ok(())
 }
 
 /// Quotes a free-text CSV field when it needs it (RFC 4180).
